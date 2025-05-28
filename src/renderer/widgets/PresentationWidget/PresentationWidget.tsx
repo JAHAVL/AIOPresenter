@@ -45,8 +45,9 @@ const PresentationWidget: React.FC = () => {
   const widgetWrapperStyle: React.CSSProperties = {
     display: 'flex',
     flexDirection: 'column',
-    height: '100%', // Fill parent (#root), which is 100vh due to global.css or MainLayout
-    // Ensure parent provides full height and any desired overall padding/background
+    height: '100vh', // Explicitly set to full viewport height
+    // This ensures the widget itself tries to occupy the entire screen height,
+    // allowing its internal flex layout (top bar + growing grid container) to work correctly.
   };
 
   const topControlBarStyle: React.CSSProperties = {
@@ -67,6 +68,7 @@ const PresentationWidget: React.FC = () => {
     overflow: 'hidden', // IMPORTANT: Prevent this container from scrolling
     backgroundColor: '#2a2a2a', // Background for the area containing the grid items
     borderRadius: '4px', // Slightly rounded corners for the grid area
+    minHeight: 0, // Helps flex-grow behave correctly, especially with complex children
   };
 
   const gridItemStyle: React.CSSProperties = {
@@ -105,7 +107,8 @@ const PresentationWidget: React.FC = () => {
         const numRows = (currentCols >= 6) ? 2 : 4; // 2 rows for sm, md, lg; 4 for xs, xxs
 
         const totalVerticalContainerPadding = 2 * containerPaddingY;
-        const totalVerticalMarginsBetweenItems = (numRows + 1) * marginY;
+        // Margins are only BETWEEN items now, as containerPadding handles top/bottom space
+        const totalVerticalMarginsBetweenItems = (numRows > 1) ? (numRows - 1) * marginY : 0;
         
         const heightAvailableForRows = containerHeight - totalVerticalContainerPadding - totalVerticalMarginsBetweenItems;
 

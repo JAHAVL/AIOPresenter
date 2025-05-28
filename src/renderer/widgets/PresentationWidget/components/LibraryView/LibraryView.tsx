@@ -15,4 +15,4 @@ const LibraryView: React.FC = () => {
   return <div style={style}>Library View</div>;
 };
 
-export default LibraryView;
+export default React.memo(LibraryView);

@@ -15,4 +15,4 @@ const CueListView: React.FC = () => {
   return <div style={style}>Cue List</div>;
 };
 
-export default CueListView;
+export default React.memo(CueListView);

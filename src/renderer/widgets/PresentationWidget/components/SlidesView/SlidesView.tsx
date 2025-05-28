@@ -15,4 +15,4 @@ const SlidesView: React.FC = () => {
   return <div style={style}>Slides View</div>;
 };
 
-export default SlidesView;
+export default React.memo(SlidesView);

@@ -16,4 +16,4 @@ const OutputWindow: React.FC = () => {
   return <div style={style}>Output Window</div>;
 };
 
-export default OutputWindow;
+export default React.memo(OutputWindow);

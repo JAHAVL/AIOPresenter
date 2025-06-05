@@ -7,28 +7,13 @@ import { nanoid } from 'nanoid';
 import { getStoragePaths, listUserLibraries, createUserLibrary, type StoragePaths, type UserLibrary as ClientUserLibrary } from '../services/storageClient';
 import { requestUserInput } from '../services/inputClient';
 import { StorageChannel } from '@shared/ipcChannels';
-// Declare window.electron for TypeScript
-interface ElectronWindow extends Window {
-  electronAPI: {
-    invoke: (channel: string, ...args: any[]) => Promise<any>;
-    sendPing: () => void;
-    onPong: (callback: (event: any, data: any) => void) => void;
-    openImageDialog: () => Promise<any>;
-    loadImageAsDataURL: (filePath: string) => Promise<any>;
-    on: (channel: string, listener: (event: any, ...args: any[]) => void) => (() => void) | void; // Can return a cleanup function
-    // off: (channel: string, listener: (event: any, ...args: any[]) => void) => void; // Removed as it's not directly exposed, cleanup is returned by 'on'
-    send?: (channel: string, ...args: any[]) => void; // Exposed in preload
-    removeListener?: (channel: string, listener: (...args: any[]) => void) => void; // Exposed in preload
-    removeAllListeners?: (channel: string) => void; // Exposed in preload
-    getAIOPaths?: () => Promise<any>; // Exposed in preload
-  };
-}
-declare const window: ElectronWindow;
+// Local ElectronWindow interface and declaration removed.
+// Global type from preload.d.ts will be used for window.electronAPI.
 // LibraryCueListCombinedView is defined in this file
 
 // Import child components
-import OutputWindow, { type OutputItem } from '../components/OutputWindow/OutputWindow';
-import SlidesView from '../components/SlidesView/SlidesView';
+import OutputWindow, { type OutputItem } from '../components/ShowView/OutputWindow/OutputWindow';
+import SlidesView from '../components/ShowView/SlidesView/SlidesView';
 import LibraryView from '../components/LibraryView/LibraryView';
 import CueListView from '../components/CueListView/CueListView';
 import PresentationControlsBar from '../components/PresentationControlsBar/PresentationControlsBar';
@@ -227,35 +212,80 @@ const PresentationWidget: React.FC<PresentationWidgetProps> = ({ themeColors }) 
   }, [selectedCueId]);
 
   // Library Management Functions
-  const fetchUserLibraries = useCallback(async () => {
-    console.log('[PW] Fetching user libraries...');
-    const librariesResponse = await listUserLibraries();
-    console.log('[PW] Raw response from listUserLibraries:', JSON.stringify(librariesResponse, null, 2));
-    if (librariesResponse.success && librariesResponse.data) {
-      setUserLibraries(librariesResponse.data);
-      console.log('[PW] User libraries fetched:', JSON.stringify(librariesResponse.data, null, 2));
-      // Transform the raw library data into the Library type expected by LibraryView
-      const transformedLibraries = librariesResponse.data.map(lib => ({
-        id: lib.path, // Use path as unique ID
-        name: lib.name,
-        cues: [] // Initialize with empty cues array
-      }));
-      setLibraries(transformedLibraries);
-      console.log('[PW] Transformed libraries for UI:', JSON.stringify(transformedLibraries, null, 2));
-      console.log('[PW] State updated with new libraries, should trigger UI render');
-    } else {
-      console.error('[PW] Failed to fetch user libraries:', librariesResponse.error);
-      setUserLibraries([]);
-      setLibraries([]);
-      console.log('[PW] State cleared due to failed library fetch');
+  const fetchInitialData = useCallback(async () => {
+    console.log('[PresentationWidget] fetchInitialData called.');
+    try {
+      // Fetch storage paths
+      const pathsResult = await getStoragePaths();
+      if (pathsResult.success) {
+        setStoragePaths(pathsResult.paths || null);
+        console.log('[PresentationWidget] Storage paths loaded:', pathsResult.paths);
+      } else {
+        console.error('[PresentationWidget] Failed to fetch storage paths:', pathsResult.error);
+      }
+
+      // Fetch user libraries
+      const librariesResult = await listUserLibraries();
+      if (librariesResult.success && librariesResult.data) {
+        // Transform ClientUserLibrary to Library type
+        const transformedLibraries = librariesResult.data.map((lib: ClientUserLibrary) => ({
+          id: lib.name, // Use name as ID since it's unique within the libraries root
+          name: lib.name,
+          path: lib.path,
+          cues: lib.cues || []
+        })) as Library[];
+        setLibraries(transformedLibraries);
+        console.log('[PresentationWidget] User libraries loaded:', transformedLibraries);
+      } else {
+        console.error('[PresentationWidget] Failed to fetch user libraries:', librariesResult.error);
+        setLibraries([]); // Set to empty array if fetch fails or data is missing
+      }
+    } catch (error) {
+      console.error('[PresentationWidget] Error fetching initial data:', error);
+      setLibraries([]); // Set to empty array on catch
     }
   }, []);
 
+  // Setup listener for library changes
+  useEffect(() => {
+    console.log('[PresentationWidget] Setting up listener for library changes...');
+    const cleanup = window.electronAPI.on('library-folders-changed', async () => {
+      console.log('[PresentationWidget] Library folders changed event received. Refreshing libraries...');
+      try {
+        const librariesResult = await listUserLibraries();
+        if (librariesResult.success && librariesResult.data) {
+          const transformedLibraries = librariesResult.data.map((lib: ClientUserLibrary) => ({
+            id: lib.name,
+            name: lib.name,
+            path: lib.path,
+            cues: lib.cues || []
+          })) as Library[];
+          setLibraries(transformedLibraries);
+          console.log('[PresentationWidget] Libraries refreshed due to folder change:', transformedLibraries);
+        } else {
+          console.error('[PresentationWidget] Failed to refresh libraries:', librariesResult.error);
+          setLibraries([]); // Set to empty array if refresh fails or data is missing
+        }
+      } catch (error) {
+        console.error('[PresentationWidget] Error refreshing libraries on folder change:', error);
+        setLibraries([]); // Set to empty array on catch
+      }
+    });
+
+    // Load initial data on component mount
+    fetchInitialData();
+
+    // Cleanup listener on component unmount
+    return () => {
+      console.log('[PresentationWidget] Cleaning up library changes listener...');
+      if (cleanup) cleanup();
+    };
+  }, [fetchInitialData]);
   // Listen for library changes from the main process
   useEffect(() => {
     const handleLibrariesChanged = () => {
       console.log('[PresentationWidget.tsx] Received LIBRARIES_DID_CHANGE, refetching libraries...');
-      fetchUserLibraries();
+      fetchInitialData();
     };
 
     let cleanupFunction: (() => void) | void | undefined;
@@ -275,7 +305,7 @@ const PresentationWidget: React.FC<PresentationWidgetProps> = ({ themeColors }) 
         cleanupFunction();
       }
     };
-  }, [fetchUserLibraries]); // fetchUserLibraries is a dependency to ensure the latest version is used
+  }, [fetchInitialData]); // fetchUserLibraries is a dependency to ensure the latest version is used
 
   // Fetch initial data or load from storage
   useEffect(() => {
@@ -289,7 +319,7 @@ const PresentationWidget: React.FC<PresentationWidgetProps> = ({ themeColors }) 
       } else {
         console.error('[PW] Failed to fetch storage paths:', pathsResponse.error);
       }
-      await fetchUserLibraries();
+      await fetchInitialData();
       // TODO: Fetch initial cuelists and populate cuelists state
       // setCuelists(initialCuelists); // If initialCuelists is defined
 
@@ -307,7 +337,7 @@ const PresentationWidget: React.FC<PresentationWidgetProps> = ({ themeColors }) 
       const createResponse = await createUserLibrary(newLibraryName.trim());
       if (createResponse.success) {
         console.log('[PW] Successfully created library:', createResponse.data?.name);
-        await fetchUserLibraries(); // Refresh the libraries list
+        await fetchInitialData(); // Refresh the libraries list
       } else {
         console.error('[PW] Failed to create library:', createResponse.error);
         alert(`Error creating library: ${createResponse.error || 'Unknown error'}`);
@@ -315,7 +345,7 @@ const PresentationWidget: React.FC<PresentationWidgetProps> = ({ themeColors }) 
     } else {
       console.log('[PW] New library name from modal is empty, not creating.');
     }
-  }, [fetchUserLibraries]);
+  }, [fetchInitialData]);
 
   const handleAddNewUserLibrary = useCallback(() => {
     console.log('[PW] handleAddNewUserLibrary called, opening modal.');
@@ -323,8 +353,8 @@ const PresentationWidget: React.FC<PresentationWidgetProps> = ({ themeColors }) 
       title: 'Create New Library',
       message: 'Enter the name for the new library:',
       defaultValue: '',
-      placeholder: 'Library Name',
       onSubmit: handleModalSubmitNewLibrary,
+      placeholder: 'Library Name',
     });
     setIsInputModalOpen(true);
   }, [handleModalSubmitNewLibrary, setInputModalProps, setIsInputModalOpen]);
@@ -414,8 +444,9 @@ const PresentationWidget: React.FC<PresentationWidgetProps> = ({ themeColors }) 
     // Add user libraries from storage, which take precedence
     userLibraries.forEach(userLib => {
       libraryMap.set(userLib.name, {
-        id: userLib.name,
+        id: userLib.name, // Or userLib.path if that's the intended ID
         name: userLib.name,
+        path: userLib.path, // Add the library's folder path
         cues: []  // Cues might be loaded separately
       });
     });
@@ -496,18 +527,14 @@ const PresentationWidget: React.FC<PresentationWidgetProps> = ({ themeColors }) 
     window.dispatchEvent(new CustomEvent('scrollToCue', { detail: { cueId } }));
   }, [setSelectedCueId]);
 
-  const handleSelectSlide = useCallback((slideId: string | null, cueId?: string) => {
-    console.log('handleSelectSlide called for SlidesView (main preview)', { slideId, cueId, currentSelectedSlideIds: selectedSlideIds, currentSelectedCueId: selectedCueId });
-    setSelectedSlideIds(slideId ? [slideId] : []);
-    setLastSelectedSlideAnchorId(slideId ?? null); 
-    if (selectedCueId !== cueId) {
-      setSelectedCueId(cueId ?? null);
-    }
-  }, [setSelectedSlideIds, setSelectedCueId, selectedCueId]);
+  const handleSelectSlide = useCallback((slideId: string, event?: React.MouseEvent) => {
+    setSelectedSlideIds([slideId]);
+    console.log(`[PW] handleSelectSlide: Selected slide ID: ${slideId}`);
+  }, []);
 
   const handleSelectSlideInEditor = useCallback((slideId: string) => {
     if (selectedCueId) {
-      handleSelectSlide(slideId, selectedCueId);
+      handleSelectSlide(slideId, undefined);
     }
   }, [selectedCueId, handleSelectSlide]);
 
@@ -563,6 +590,7 @@ const PresentationWidget: React.FC<PresentationWidgetProps> = ({ themeColors }) 
     const newLibrary: Library = {
       id: nanoid(),
       name: `${defaultNamePrefix}${newNameNumber}`,
+      path: '', // Placeholder for a new library's path
       cues: [],
     };
     setLibraries(prev => [...prev, newLibrary]);
@@ -697,16 +725,12 @@ const PresentationWidget: React.FC<PresentationWidgetProps> = ({ themeColors }) 
 
         return (
           <SlidesView
-            key={`slides-view-${panel.id}-${selectedCueId || 'no-cue'}-${selectedSlideIds.length > 0 ? selectedSlideIds[0] : 'no-slide'}`}
+            key="slides-view"
             themeColors={themeColors}
-            cueGroups={cuesWithSlidesForView} 
-            selectedSlideId={selectedSlideIds[0] || null} 
-            onSelectSlide={(slideId: string, cueId: string) => handleSelectSlide(slideId, cueId)} 
-            presentationTitle={presentationTitleForHeader}
-            cueName={cueNameForSlidesViewHeader}
-            onVisibleCueChanged={handleSelectCue}
-            selectedCueId={selectedCueId}
-            onNavigateToCue={handleNavigateToCue}
+            slides={slidesForSlidesView}
+            selectedSlideIds={selectedSlideIds}
+            onSelectSlide={handleSelectSlide}
+            onUpdateSlides={handleUpdateCueSlides}
           />
         );
       }

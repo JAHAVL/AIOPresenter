@@ -9,7 +9,7 @@
     "allowSyntheticDefaultImports": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
-    "moduleResolution": "Bundler", 
+    "moduleResolution": "node", 
     "resolveJsonModule": true,
     "isolatedModules": true,
     "noEmit": true, 
@@ -19,14 +19,14 @@
       "@main/*": ["main/*"],
       "@renderer/*": ["renderer/*"],
       "@components/*": ["renderer/components/*"],
-      "@utils/*": ["utils/*"]
+      "@utils/*": ["utils/*"],
+      "@react-icons/*": ["node_modules/react-icons/*"]
     },
     "allowJs": true,
-    "types": ["vite/client"] 
+    "types": ["node"] 
   },
   "include": [
-    "src/**/*",
-    "vite.config.ts" 
+    "src/**/*"
   ],
   "exclude": [
     "node_modules",

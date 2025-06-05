@@ -1,0 +1,62 @@
+.toggleButtonContainer {
+  display: inline-flex; /* Changed from flex to inline-flex to wrap content */
+  border: 1px solid var(--toggle-container-border, #2a2a2a);
+  border-radius: 6px;
+  overflow: hidden;
+  background-color: var(--toggle-container-bg, #333333);
+  padding: 2px; /* Padding for the container */
+}
+
+.toggleButton {
+  flex-grow: 1;
+  flex-shrink: 0; /* Prevent shrinking */
+  min-width: 28px; /* Base min-width for all toggle buttons */
+  padding: 5px 10px; /* Base padding for all toggle buttons */
+  border: none;
+  background-color: transparent; /* Inactive buttons are transparent against container bg */
+  color: var(--toggle-inactive-text, #ababab);
+  cursor: pointer;
+  text-align: center;
+  transition: background-color 0.15s ease-in-out, color 0.15s ease-in-out;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 28px; /* Adjusted height */
+  font-size: 0.875em; /* Slightly smaller font */
+  border-radius: 4px; /* Base radius for all buttons */
+  outline: none; /* Remove default focus outline if custom is handled */
+}
+
+.toggleButton:not(.toggleButtonActive):hover {
+  background-color: var(--toggle-hover-bg, #404040);
+  color: var(--toggle-hover-text, #ffffff);
+}
+
+.toggleButtonActive {
+  background-color: var(--toggle-active-bg, #4d4d4d); /* Lighter gray for active button */
+  color: var(--toggle-active-text, #ffffff);
+  border-radius: 4px; /* Matches base radius, fits within container padding */
+  /* box-shadow: 0 1px 2px rgba(0, 0, 0, 0.15); /* Subtle shadow for depth */
+  /* No margin needed due to container padding */
+}
+
+/* Optional: very subtle hover for active button, or none */
+/* .toggleButtonActive:hover {
+  background-color: var(--toggle-active-hover-bg, #555555);
+} */
+
+.iconToggleButton {
+  padding: 5px; /* Adjusted padding for icons */
+  line-height: 0; /* Helps ensure icon isn't affected by text line height */
+  font-size: 0; /* May also help if there's an interaction with font rendering */
+}
+
+.iconToggleButton svg {
+  display: block; /* Ensure SVG takes up space correctly */
+  margin: auto; /* Center if padding allows */
+}
+
+.textStyleButton {
+  padding: 5px 15px; /* More horizontal padding for B/I/U/S buttons */
+  min-width: 40px; /* Ensure they are a bit wider */
+}

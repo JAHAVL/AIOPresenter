@@ -1,0 +1,46 @@
+/*
+  Widget-specific font definitions.
+  Place your font files (e.g., .woff2, .ttf) in the
+  ../assets/fonts/ directory relative to this CSS file.
+  Then, update the src: url() paths below to match your filenames.
+*/
+
+/* --- Open Sans --- */
+/* Regular */
+@font-face {
+  font-family: 'Open Sans';
+  font-style: normal;
+  font-weight: 400;
+  src: local('Open Sans Regular'), local('OpenSans-Regular'),
+       url('../assets/fonts/OpenSans-Regular.ttf') format('truetype'); /* ADJUST FILENAME */
+}
+
+/* Italic */
+@font-face {
+  font-family: 'Open Sans';
+  font-style: italic;
+  font-weight: 400;
+  src: local('Open Sans Italic'), local('OpenSans-Italic'),
+       url('../assets/fonts/OpenSans-Italic.ttf') format('truetype'); /* ADJUST FILENAME */
+}
+
+/* Bold */
+@font-face {
+  font-family: 'Open Sans';
+  font-style: normal;
+  font-weight: 700;
+  src: local('Open Sans Bold'), local('OpenSans-Bold'),
+       url('../assets/fonts/OpenSans-Bold.ttf') format('truetype'); /* ADJUST FILENAME */
+}
+
+/* Bold Italic */
+@font-face {
+  font-family: 'Open Sans';
+  font-style: italic;
+  font-weight: 700;
+  src: local('Open Sans Bold Italic'), local('OpenSans-BoldItalic'),
+       url('../assets/fonts/OpenSans-BoldItalic.ttf') format('truetype'); /* ADJUST FILENAME */
+}
+
+
+/* Add more @font-face rules for other fonts and weights/styles as needed */

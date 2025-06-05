@@ -1,16 +1,86 @@
 // src/main/main.ts
+// CACHE_BREAKER_COMMENT_JUNE_05_2025_1135_AM
+console.log('<<<<< EXECUTING MAIN.TS - CACHE BREAKER ACTIVE >>>>>');
 import { app, BrowserWindow, ipcMain, Tray, Menu, nativeImage } from 'electron';
+import { StorageChannel } from '../shared/ipcChannels';
+import fs from 'fs';
 import path from 'path';
-import { exec } from 'child_process';
-import 'electron-squirrel-startup'; // Handles squirrel startup events for windows installers
+import util from 'util';
 
-// Define VITE_DEV_SERVER_URL. vite-plugin-electron will define this during development.
-declare const VITE_DEV_SERVER_URL: string | undefined;
+// Completely disable console output to bypass EPIPE errors
+// Store original console methods
+const originalConsole = { ...console };
+
+// Replace all console methods with no-ops (Commented out to allow file logging)
+// console.log = () => {};
+// console.info = () => {};
+// console.warn = () => {};
+// console.error = () => {};
+// console.debug = () => {};
+
+
+// Redirect console output to a log file
+const logDirectory = app.getPath('userData');
+if (!fs.existsSync(logDirectory)) {
+  fs.mkdirSync(logDirectory, { recursive: true });
+}
+const logFilePath = path.join(logDirectory, 'main.log');
+const logStream = fs.createWriteStream(logFilePath, { flags: 'a' });
+
+console.log = (...args: any[]) => {
+  logStream.write(util.format(...args) + '\n');
+  process.stdout.write(util.format(...args) + '\n'); // Also keep writing to stdout if possible
+};
+console.error = (...args: any[]) => {
+  logStream.write(util.format('ERROR:', ...args) + '\n');
+  process.stderr.write(util.format('ERROR:', ...args) + '\n');
+};
+console.warn = (...args: any[]) => {
+  logStream.write(util.format('WARN:', ...args) + '\n');
+  process.stdout.write(util.format('WARN:', ...args) + '\n');
+};
+console.info = (...args: any[]) => {
+  logStream.write(util.format('INFO:', ...args) + '\n');
+  process.stdout.write(util.format('INFO:', ...args) + '\n');
+};
+console.debug = (...args: any[]) => {
+  logStream.write(util.format('DEBUG:', ...args) + '\n');
+  process.stdout.write(util.format('DEBUG:', ...args) + '\n');
+};
+
+console.log(`<<<<< Main process started. Logging to: ${logFilePath} >>>>>`);
+console.log(`Node.js version: ${process.version}`);
+console.log(`Electron version: ${process.versions.electron}`);
+console.log(`App version: ${app.getVersion()}`);
+console.log(`User Data Path: ${app.getPath('userData')}`);
+
+process.on('uncaughtException', (error) => {
+  console.error('UNCAUGHT EXCEPTION IN MAIN PROCESS:', error);
+  // Optionally, exit or attempt a graceful shutdown
+  // app.quit();
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('UNHANDLED REJECTION IN MAIN PROCESS:', reason, promise);
+});
+
+
+import { exec } from 'child_process';
+import 'electron-squirrel-startup';
+import * as PathConfig from '../utils/pathconfig'; // Handles squirrel startup events for windows installers
+import { StorageService } from './StorageService';
+import { initializeStorageIpcHandlers } from './ipc/storageHandlers';
+import { setupInputHandlers } from './ipc/inputHandlers';
+
+// Define WEBPACK_DEV_SERVER_URL. vite-plugin-electron will define this during development.
+declare const WEBPACK_DEV_SERVER_URL: string; // Injected by Webpack DefinePlugin in webpack.main.config.js
 
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
 
-function createWindow() {
+const isDev = process.env.NODE_ENV === 'development';
+
+async function createWindow() {
   console.log('[main.ts] Attempting to create window...');
 
   mainWindow = new BrowserWindow({
@@ -20,11 +90,11 @@ function createWindow() {
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'hidden', // 'hiddenInset' for macOS, 'hidden' for others
     show: false, // Initially hide the window, show when ready or via tray
     webPreferences: {
-      preload: path.join(__dirname, '../preload/preload.js'), // Adjusted path for Vite output
+      preload: PathConfig.getPreloadPath(__dirname),
       contextIsolation: true,
       nodeIntegration: false,
     },
-    backgroundColor: '#181818', // Changed from '#FF4136' to dark theme color
+    backgroundColor: '#181818', // Dark theme color
   });
 
   // Show window when it's ready to prevent flash of unstyled content
@@ -34,16 +104,16 @@ function createWindow() {
     }
   });
 
-  console.log('[main.ts] MainWindow object created.');
+  // console.log('[main.ts] MainWindow object created.');
 
   // Attempt to open DevTools immediately, before any URL loading
-  if (mainWindow && !mainWindow.webContents.isDestroyed() && !mainWindow.webContents.isDevToolsOpened()) {
-    console.log('[main.ts] Attempting to open DevTools BEFORE URL load...');
+  if (mainWindow && !mainWindow.webContents.isDestroyed() && !mainWindow.webContents.isDevToolsOpened() && isDev) {
+    // console.log('[main.ts] Attempting to open DevTools BEFORE URL load...');
     mainWindow.webContents.openDevTools({ mode: 'detach' });
   }
 
   mainWindow.webContents.on('did-fail-load', (event, errorCode, errorDescription, validatedURL) => {
-    console.error(`[main.ts] Failed to load URL: ${validatedURL}. Error ${errorCode}: ${errorDescription}`);
+    // console.error(`[main.ts] Failed to load URL: ${validatedURL}. Error ${errorCode}: ${errorDescription}`);
     const errorHtml = `data:text/html;charset=utf-8,${encodeURIComponent(`
       <html>
         <body style="font-family: sans-serif; padding: 20px; background-color: #FFCCCC;">
@@ -57,16 +127,16 @@ function createWindow() {
   });
   
   mainWindow.webContents.on('did-finish-load', () => {
-    console.log('[main.ts] WebContents finished loading content.');
+    // console.log('[main.ts] WebContents finished loading content.');
     // Ensure DevTools are open if they weren't already
-    if (mainWindow && !mainWindow.webContents.isDestroyed() && !mainWindow.webContents.isDevToolsOpened()) {
-      console.log('[main.ts] Attempting to open DevTools AFTER did-finish-load (if not already open)...');
+    if (mainWindow && !mainWindow.webContents.isDestroyed() && !mainWindow.webContents.isDevToolsOpened() && isDev) {
+      // console.log('[main.ts] Attempting to open DevTools AFTER did-finish-load (if not already open)...');
       mainWindow.webContents.openDevTools({ mode: 'detach' });
     }
   });
 
   mainWindow.webContents.on('devtools-opened', () => {
-    console.log('[main.ts] DevTools confirmed opened.');
+    // console.log('[main.ts] DevTools confirmed opened.'); // EPIPE Hunt
   });
 
   mainWindow.on('closed', () => {
@@ -74,65 +144,110 @@ function createWindow() {
     app.quit(); // Ensure app quits when main window is closed
   });
 
-  // mainWindow.on('close', ...) handler that previously hid the window on macOS
-  // has been removed to allow the window to close, which then triggers 'closed' event for app.quit().
-
-  const isDev = import.meta.env.DEV;
-  console.log(`[main.ts] import.meta.env.DEV: ${isDev}, VITE_DEV_SERVER_URL: ${VITE_DEV_SERVER_URL}`);
-
-  if (isDev && VITE_DEV_SERVER_URL) {
-    console.log(`[main.ts] Loading DEV URL: ${VITE_DEV_SERVER_URL}`);
-    mainWindow.loadURL(VITE_DEV_SERVER_URL);
-  } else {
-    const prodPath = path.join(__dirname, '../renderer/index.html');
-    console.log(`[main.ts] Loading PROD file: ${prodPath}`);
-    mainWindow.loadFile(prodPath);
+  if (mainWindow) {
+    // console.log('[main.ts] Clearing Electron session cache...'); // EPIPE Hunt
+    await mainWindow.webContents.session.clearCache();
+    // console.log('[main.ts] Electron session cache cleared.'); // EPIPE Hunt
   }
 
-  ipcMain.on('ping', () => console.log('[main.ts] Main process received ping'));
+  // console.log(`[main.ts] NODE_ENV: ${process.env.NODE_ENV}, WEBPACK_DEV_SERVER_URL: ${WEBPACK_DEV_SERVER_URL}`); // Commented out to prevent EPIPE error
+
+  if (isDev) {
+    console.log('[main.ts] In development mode.');
+
+    let targetUrl = '';
+    if (typeof WEBPACK_DEV_SERVER_URL === 'string' && WEBPACK_DEV_SERVER_URL.trim() !== '') {
+      targetUrl = WEBPACK_DEV_SERVER_URL;
+      console.log(`[main.ts] Using WEBPACK_DEV_SERVER_URL: ${targetUrl}`);
+    } else {
+      targetUrl = `http://localhost:8080`; // Fallback to development server port
+      console.warn(`[main.ts] WEBPACK_DEV_SERVER_URL not defined or empty. Falling back to: ${targetUrl}`);
+    }
+    
+    // Append a timestamp to try and bypass caching issues if any
+    targetUrl += (targetUrl.includes('?') ? '&t=' : '?t=') + Date.now();
+
+    // The onBeforeRequest logging can be verbose, keep if needed for deep debugging.
+    // mainWindow.webContents.session.webRequest.onBeforeRequest({ urls: ['*://*/*'] }, 
+    //   (details: { url: string }, callback: (response: { cancel?: boolean; redirectURL?: string }) => void) => {
+    //     fs.appendFileSync(logFilePath, `[main.ts] Request: ${details.url}\n`);
+    //     callback({});
+    //   }
+    // );
+    
+    console.log(`[main.ts] Attempting to load URL: ${targetUrl}`);
+    fs.appendFileSync(logFilePath, `[main.ts] Loading URL: ${targetUrl}\n`);
+    
+    try {
+      await mainWindow.loadURL(targetUrl);
+      console.log(`[main.ts] Successfully loaded URL: ${targetUrl}`);
+      fs.appendFileSync(logFilePath, `[main.ts] Successfully loaded dev URL: ${targetUrl}\n`);
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      console.error(`[main.ts] Error loading dev URL (${targetUrl}): ${errorMessage}`);
+      fs.appendFileSync(logFilePath, `[main.ts] Error loading dev URL (${targetUrl}): ${errorMessage}\n`);
+      // Fallback to prod path if dev fails
+      try {
+        const prodPath = PathConfig.getProdIndexPath(__dirname);
+        console.log(`[main.ts] Attempting to load fallback production path: ${prodPath}`);
+        await mainWindow.loadFile(prodPath);
+        console.log(`[main.ts] Successfully loaded fallback production path: ${prodPath}`);
+      } catch (fallbackErr: unknown) {
+        const fallbackErrorMessage = fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr);
+        console.error(`[main.ts] Error loading fallback production path: ${fallbackErrorMessage}`);
+        fs.appendFileSync(logFilePath, `[main.ts] Error loading fallback production path: ${fallbackErrorMessage}\n`);
+        // If fallback also fails, load an error page
+        const errorHtml = `data:text/html;charset=utf-8,${encodeURIComponent(`
+          <html>
+            <body style="font-family: sans-serif; padding: 20px; background-color: #FFCCCC;">
+              <h1>Error Loading Page</h1>
+              <p>Could not load application content. Development server may not be running or production files may be missing.</p>
+              <p>Attempted URL: <strong>${targetUrl}</strong></p>
+              <p>Error: ${errorMessage}</p>
+            </body>
+          </html>
+        `)}`;
+        if (mainWindow && !mainWindow.isDestroyed()) mainWindow.loadURL(errorHtml);
+      }
+    }
+    
+    // Open DevTools in development mode if not already opened
+    if (mainWindow && !mainWindow.webContents.isDestroyed() && !mainWindow.webContents.isDevToolsOpened()) {
+        mainWindow.webContents.openDevTools({ mode: 'detach' });
+    }
+  } else {
+    const prodPath = PathConfig.getProdIndexPath(__dirname);
+    // console.log(`[main.ts] Loading PROD file: ${prodPath}`);
+    await mainWindow.loadFile(prodPath);
+  }
+
+  ipcMain.on('ping', () => {/* console.log('[main.ts] Main process received ping') */});
 }
 
 function createTray() {
-  // Icon should be in 'AIOPRESENTER/public/assets/iconTemplate.png'
-  // In dev, app.getAppPath() is project root. In prod, it's app root.
-  // Vite serves 'public' dir at root, and copies it to output root.
-  const iconName = 'iconTemplate.png'; // Electron handles @2x for macOS automatically if present
+  const iconPath = PathConfig.getIconPath(isDev, app.getAppPath(), __dirname);
   
-  let basePath;
-  if (import.meta.env.DEV) {
-    // In development, app.getAppPath() is the project root.
-    // Assets are in 'public/assets' relative to project root.
-    basePath = path.join(app.getAppPath(), 'public');
-  } else {
-    // In production, app.getAppPath() is the app's root directory (e.g., inside app.asar).
-    // Assets from 'public' are copied to the root of this directory.
-    basePath = app.getAppPath();
-  }
-  const iconPath = path.join(basePath, 'assets', iconName);
-  
-  console.log(`[main.ts] Attempting to load tray icon from: ${iconPath}`);
+  // console.log(`[main.ts] Attempting to load tray icon from: ${iconPath}`);
 
   try {
     const image = nativeImage.createFromPath(iconPath);
     if (image.isEmpty()) {
-      console.error(`[main.ts] Failed to load tray icon at ${iconPath}. Image is empty.`);
-      // Fallback or error handling if icon doesn't load
-      tray = new Tray(nativeImage.createEmpty()); // Creates a blank space, less ideal
+      // console.error(`[main.ts] Failed to load tray icon at ${iconPath}. Image is empty.`);
+      tray = new Tray(nativeImage.createEmpty());
     } else {
-      console.log(`[main.ts] Tray icon loaded from ${iconPath}`);
+      // console.log(`[main.ts] Tray icon loaded from ${iconPath}`);
       tray = new Tray(image);
     }
   } catch (error) {
-    console.error(`[main.ts] Error creating tray icon from path ${iconPath}:`, error);
-    tray = new Tray(nativeImage.createEmpty()); // Fallback
+    // console.error(`[main.ts] Error creating tray icon from path ${iconPath}:`, error);
+    tray = new Tray(nativeImage.createEmpty());
   }
 
   const contextMenu = Menu.buildFromTemplate([
     {
       label: 'Preferences...',
       click: () => {
-        console.log('[main.ts] Preferences clicked (not implemented yet)');
-        // Here you would typically open a preferences window or show the main window
+        // console.log('[main.ts] Preferences clicked (not implemented yet)');
         mainWindow?.show();
       },
     },
@@ -161,14 +276,10 @@ function createTray() {
   tray.setToolTip('AIOPRESENTER');
   tray.setContextMenu(contextMenu);
 
-  // On macOS, clicking the tray icon usually shows/hides the app or a popover.
-  // Left click to show/hide window, right click for context menu (default on Windows/Linux)
   if (process.platform === 'darwin') {
     tray.on('click', () => {
       if (mainWindow) {
         if (mainWindow.isVisible()) {
-           // If you want left click to also show context menu on mac, call: tray.popUpContextMenu();
-           // Or toggle window visibility:
           mainWindow.hide(); 
         } else {
           mainWindow.show();
@@ -176,64 +287,116 @@ function createTray() {
         }
       }
     });
-    // Right click for context menu on macOS is handled by setContextMenu by default
   }
 
-  console.log('[main.ts] Tray icon created.');
+  // console.log('[main.ts] Tray icon created.');
 }
 
-app.whenReady().then(() => {
-  console.log('[main.ts] App is ready, calling createWindow and createTray...');
-  createWindow();
+app.whenReady().then(async () => {
+  console.log('[main.ts] app.whenReady().then() --- BLOCK ENTERED ---');
+  // console.log('[main.ts] App is ready, calling createWindow and createTray...');
+  await createWindow();
   createTray();
+  
+  // Initialize IPC handlers
+  let initError: any = null; // Changed to 'any' to store potential error object
+  (ipcMain as any).__MAIN_TS_MARKER__ = 'SetDirectlyInMainTS_IPC_Instance';
+  console.log('[main.ts] Marked ipcMain instance with __MAIN_TS_MARKER__:', (ipcMain as any).__MAIN_TS_MARKER__);
 
-  app.on('activate', () => {
+  const sendMainDebug = (source: string, message: string, data?: any) => {
+    console.log(`[main.ts DEBUG] ${source}: ${message}`, data || '');
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send(StorageChannel.MAIN_PROCESS_DEBUG_MESSAGE, {
+        source,
+        log: message,
+        ...(data || {})
+      });
+    }
+  };
+
+  sendMainDebug('initial_state', 'Initial ipcMain event names.', { eventNames: ipcMain.eventNames() });
+
+  sendMainDebug('main.ts_before_on_test', 'ipcMain._invokeHandlers before test-on-reply registration', {
+    // @ts-ignore
+    invokeHandlers: ipcMain._invokeHandlers ? Object.keys(ipcMain._invokeHandlers) : 'undefined or null'
+  });
+
+  ipcMain.on('test-on-reply', (event, arg) => {
+    sendMainDebug('main.ts_on_test_received', `'test-on-reply' received in main process with arg: ${arg}`, { data: arg });
+    event.reply('test-on-reply-back', { message: `Main process received: ${arg} and says hello!` });
+  });
+
+  sendMainDebug('main.ts_after_on_test', 'ipcMain._invokeHandlers after test-on-reply registration (should be unchanged by .on)', {
+    // @ts-ignore
+    invokeHandlers: ipcMain._invokeHandlers ? Object.keys(ipcMain._invokeHandlers) : 'undefined or null'
+  });
+  sendMainDebug('main.ts_after_on_test_eventNames', 'ipcMain.eventNames after test-on-reply registration (should include test-on-reply)', { eventNames: ipcMain.eventNames() });
+
+  // Test handler registration directly in main.ts BEFORE initializeStorageIpcHandlers
+  try {
+    ipcMain.handle('test-direct-before', () => 'response from test-direct-before');
+    sendMainDebug('direct_handle_before', 'Attempted to register "test-direct-before". Event names now:', { eventNames: ipcMain.eventNames() });
+  } catch (e: any) {
+    sendMainDebug('direct_handle_before_error', 'Error registering "test-direct-before"', { error: e.message, eventNames: ipcMain.eventNames() });
+  }
+
+  // Call initializeStorageIpcHandlers
+  try {
+    initializeStorageIpcHandlers(ipcMain, mainWindow, StorageService);
+    sendMainDebug('after_storage_handlers_call', 'SUCCESS: initializeStorageIpcHandlers completed. Event names now:', { eventNames: ipcMain.eventNames() });
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    sendMainDebug('storage_handlers_call_error', 'ERROR during initializeStorageIpcHandlers call.', { error: errorMessage, eventNames: ipcMain.eventNames() });
+    initError = error; // Keep for final summary
+  }
+
+  // Test handler registration directly in main.ts AFTER initializeStorageIpcHandlers
+  try {
+    ipcMain.handle('test-direct-after', () => 'response from test-direct-after');
+    sendMainDebug('direct_handle_after', 'Attempted to register "test-direct-after". Event names now:', { eventNames: ipcMain.eventNames() });
+  } catch (e: any) {
+    sendMainDebug('direct_handle_after_error', 'Error registering "test-direct-after"', { error: e.message, eventNames: ipcMain.eventNames() });
+  }
+
+  sendMainDebug('final_ipc_state', 'Final ipcMain event names after all handler initializations.', { eventNames: ipcMain.eventNames(), initializationError: initError ? (initError instanceof Error ? initError.message : String(initError)) : null });
+
+  // console.log('[main.ts] IPC handlers initialized.');
+
+  app.on('activate', async () => {
     // On macOS it's common to re-create a window in the app when the
     // dock icon is clicked and there are no other windows open.
     if (BrowserWindow.getAllWindows().length === 0) {
-      console.log('[main.ts] App activate, calling createWindow...');
-      createWindow();
+      await createWindow();
     }
-    // Ensure main window is shown if it was hidden
     if (mainWindow && !mainWindow.isVisible()) {
       mainWindow.show();
       mainWindow.focus();
     }
   });
-});
+}); // This closes the app.whenReady().then(() => { ... })
 
 app.on('will-quit', () => {
-  if (import.meta.env.DEV) {
-    console.log('[main.ts] App is quitting in DEV mode. Attempting to kill port 9871...');
+  if (process.env.NODE_ENV === 'development') {
+    // console.log('[main.ts] App is quitting in DEV mode. Attempting to kill port 9871...');
     exec('kill-port 9871', (error, stdout, stderr) => {
       if (error) {
-        console.error(`[main.ts] Error killing port 9871: ${error.message}`);
+        // console.error(`[main.ts] Error killing port 9871: ${error.message}`);
         return;
       }
       if (stderr) {
-        console.warn(`[main.ts] Stderr while killing port 9871: ${stderr}`);
+        // console.warn(`[main.ts] Stderr while killing port 9871: ${stderr}`);
       }
-      console.log(`[main.ts] kill-port 9871 stdout: ${stdout}`);
+      // console.log(`[main.ts] Kill port 9871 result: ${stdout}`);
     });
+  } else {
+    // console.log('[main.ts] App is quitting in non-DEV mode.');
   }
 });
 
 app.on('window-all-closed', () => {
-  // Quit when all windows are closed, except on macOS. There, it's common
-  // for applications and their menu bar to stay active until the user quits
-  // explicitly with Cmd + Q.
-  // With a tray icon, you might not want to quit even on other platforms.
   if (process.platform !== 'darwin') {
     app.quit();
   }
-  // If we want the app to quit if not on macOS and no tray, this is fine.
-  // If tray exists, usually the app doesn't quit when all windows are closed.
-  // The 'Quit' option in tray menu becomes the primary way to exit.
-  if (!tray || tray.isDestroyed()) { // Only quit if no tray icon
-    if (process.platform !== 'darwin') {
-      app.quit();
-    }
-  }
 });
 
-console.log('[main.ts] Main process script top-level execution finished.');
+// console.log('[main.ts] Main process initialization complete.');

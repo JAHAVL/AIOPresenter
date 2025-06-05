@@ -1,0 +1,26 @@
+.inputBase {
+  width: 100%;
+  box-sizing: border-box;
+  background-color: var(--input-bg, #252526);
+  color: var(--input-text, #cccccc);
+  border: 1px solid var(--input-border, #3E3E42);
+  border-radius: 3px;
+  padding: 6px 8px;
+  font-size: 13px;
+  margin-bottom: 10px;
+  transition: border-color 0.15s ease-in-out, box-shadow 0.15s ease-in-out; /* Added transition */
+}
+
+.labelShared {
+  display: block;
+  margin-bottom: 5px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--label-text, #bbbbbb);
+}
+
+.inputShared:focus {
+  border-color: var(--focus-border-color, #007bff);
+  box-shadow: 0 0 0 0.2rem rgba(var(--focus-box-shadow-color-rgb, 0, 123, 255), 0.25);
+  outline: none; /* Remove default browser outline */
+}

@@ -4,11 +4,16 @@
   "description": "",
   "main": "dist/main/main.js",
   "scripts": {
-    "dev": "kill-port 9871 && vite --port 9871",
-    "build": "vite build",
-    "start": "electron dist/main/main.js",
-    "package": "electron-forge package",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "dev": "cross-env NODE_ENV=development webpack serve --config webpack.renderer.config.js --port 8080",
+    "build:main": "cross-env NODE_ENV=production webpack --config webpack.main.config.js",
+    "build:preload": "cross-env NODE_ENV=production webpack --config webpack.preload.config.js",
+    "build:renderer": "cross-env NODE_ENV=development webpack --config webpack.renderer.config.js",
+    "build": "npm run build:main && npm run build:preload && npm run build:renderer",
+    "electron:dev": "concurrently -k \"npm run dev\" \"rimraf dist && wait-on tcp:8080 && cross-env NODE_ENV=development webpack --config webpack.main.config.js && cross-env NODE_ENV=development webpack --config webpack.preload.config.js && cross-env NODE_ENV=development electron ./dist/main/main.js\"",
+    "start": "npm run build && electron ./dist/main/main.js",
+    "package": "npm run build && electron-forge package",
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "electron:dev:sequential": "npm run dev & PIDS=$! && rimraf dist && cross-env NODE_ENV=development webpack --config webpack.main.config.js && cross-env NODE_ENV=development webpack --config webpack.preload.config.js && wait-on tcp:8080 && cross-env NODE_ENV=development electron ./dist/main/main.js ; kill $PIDS"
   },
   "keywords": [],
   "author": "",
@@ -16,10 +21,12 @@
   "type": "commonjs",
   "dependencies": {
     "@types/react-rnd": "^7.4.4",
+    "chokidar": "^4.0.3",
     "electron": "^36.3.1",
     "electron-squirrel-startup": "^1.0.1",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
+    "react-icons": "^4.12.0",
     "react-rnd": "^10.5.2"
   },
   "devDependencies": {
@@ -27,18 +34,24 @@
     "@babel/preset-env": "^7.27.2",
     "@babel/preset-react": "^7.27.1",
     "@babel/preset-typescript": "^7.27.1",
-    "@types/node": "^22.15.23",
+    "@types/electron": "^1.4.38",
+    "@types/node": "^22.15.29",
     "@types/react": "^19.1.6",
     "@types/react-dom": "^19.1.5",
-    "@vitejs/plugin-react": "^4.5.0",
+    "babel-loader": "^10.0.0",
     "concurrently": "^9.1.2",
     "cross-env": "^7.0.3",
-    "kill-port": "^2.0.1",
+    "css-loader": "^7.1.2",
+    "file-loader": "^6.2.0",
+    "html-webpack-plugin": "^5.6.3",
     "nodemon": "^3.1.10",
+    "rimraf": "^5.0.7",
+    "style-loader": "^4.0.0",
+    "ts-loader": "^9.5.2",
     "typescript": "^5.8.3",
-    "vite": "^6.3.5",
-    "vite-plugin-electron": "^0.29.0",
-    "vite-plugin-electron-renderer": "^0.14.6",
-    "vite-tsconfig-paths": "^5.1.4"
+    "wait-on": "^8.0.3",
+    "webpack": "^5.99.9",
+    "webpack-cli": "^6.0.1",
+    "webpack-dev-server": "^5.2.2"
   }
 }

@@ -3,6 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <!-- Added permissive CSP to address security warnings -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' 'unsafe-eval'; script-src 'self' 'unsafe-inline' 'unsafe-eval' http://localhost:8080; connect-src 'self' http://localhost:8080; img-src 'self' data:; style-src 'self' 'unsafe-inline';">
   <title>AIOPRESENTER</title>
   <style>
     /* Basic reset and full-height body/html */
@@ -27,7 +29,10 @@
   </style>
 </head>
 <body>
-  <div id="root"></div>
-  <script type="module" src="./index.tsx"></script> <!-- Vite needs this -->
+  <div id="root">
+    <p>Loading AIOPRESENTER...</p>
+  </div>
+  <!-- Use a dynamic path based on development/production mode -->
+  <script type="module" src="<%= isDevelopment ? '/' : '/dist/renderer/' %>bundle.js"></script>
 </body>
 </html>

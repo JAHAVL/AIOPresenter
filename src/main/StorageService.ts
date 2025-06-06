@@ -3,7 +3,7 @@ import os from 'os';
 import { app, BrowserWindow } from 'electron';
 import path from 'path';
 import fs from 'fs'; // Still needed for some synchronous checks and other file ops
-import chokidar from 'chokidar'; // Added for robust watching
+import chokidar, { FSWatcher } from 'chokidar'; // Added for robust watching
 import { PATH_CONFIG } from '../utils/pathconfig';
 import { StorageChannel, Cue } from '../shared/ipcChannels';
 
@@ -14,7 +14,7 @@ class StorageService {
   private defaultUserLibraryPath: string = '';
   private mediaLibraryPath: string = '';
   private userProjectsRootPath: string = '';
-  private libraryWatcher: chokidar.FSWatcher | null = null; // Changed type
+  private libraryWatcher: FSWatcher | null = null; // Changed type
 
   constructor(customLibrariesPath?: string) {
     console.log('[SS_DEBUG_MAIN] StorageService Constructor: Called.');
@@ -238,7 +238,7 @@ class StorageService {
             }
           });
         })
-        .on('error', (error: Error) => {
+        .on('error', (error: unknown) => {
           console.error(`[SS_DEBUG_MAIN] Watcher Error for ${this.presentationLibraryPath}:`, error);
         })
         .on('ready', () => {

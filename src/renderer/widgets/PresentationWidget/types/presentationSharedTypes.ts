@@ -10,7 +10,7 @@ export interface Library {
   id: string;
   name: string;
   path: string; // Absolute path to the library's folder
-  cues: Cue[]; // Cues within this library, loaded when library is selected
+  cuelists: Cuelist[]; // Cuelists within this library
 }
 
 // Base interface for all slide elements
@@ -101,33 +101,46 @@ export type SlideElement = TextSlideElement | ImageSlideElement | VideoSlideElem
 // Represents a single slide within a Cue
 export interface Slide {
   id: string;
-  name?: string; // Optional name for the slide (e.g., "Verse 1", "Chorus Slide 2")
+  name?: string; // Optional name for the slide
   elements: SlideElement[];
-  backgroundColor?: string;
-  notes?: string;
-  thumbnailUrl?: string; // Optional URL for the slide thumbnail
-  // Future properties: transition to next slide, duration, etc.
+  backgroundColor?: string; // e.g., '#FFFFFF', 'rgba(0,0,0,0.5)'
+  backgroundImage?: string; // URL or path to an image
+  duration?: number; // Optional duration in milliseconds for auto-advancing slides
+  notes?: string; // Optional notes for the slide
+  // Add other slide-specific properties like transitions, etc.
 }
 
-// A Cue is a sequence of one or more slides
 export interface Cue {
   id: string;
-  name: string; // A name for this cue (e.g., "Song Intro", "Sermon Point 1")
-  slides: Slide[]; // The slides that make up this cue
-  // Future properties: cue-specific settings, default transition, etc.
+  name: string;
+  slides: Slide[];
+  notes?: string;
+  // Add other cue-specific properties, e.g., trigger type
 }
 
 export interface Cuelist {
   id: string;
   name: string;
-  type: 'cuelist' | 'folder'; // To distinguish between cuelists and folders
-  parentId?: string; // Optional: ID of the parent folder
-  cues?: Cue[]; // Optional: Array of cues, only for 'cuelist' type
+  cues: Cue[];
+  parentId?: string; // Optional: Could be Library ID
+  type?: 'cuelist' | 'folder'; // To distinguish between cuelists and folders if used in a tree structure
+  // Add other cuelist-specific properties
 }
 
+
 // Represents a Cue and its slides, primarily for use in SlidesView when displaying multiple cues
+import type React from 'react';
+
 export interface CueGroup {
   cue: Cue;
   slides: Slide[]; // Redundant with cue.slides but reinforces the data structure for SlidesView
   // cuelistId?: string; // Optional: if needed to trace back to the Cuelist
+}
+
+export interface OutputItem {
+  id: string;
+  name: string;
+  contentPreview?: React.ReactNode;
+  audioLevel?: number;
+  peakAudioLevel?: number;
 }

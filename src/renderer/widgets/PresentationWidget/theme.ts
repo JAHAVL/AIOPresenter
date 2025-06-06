@@ -33,6 +33,8 @@ export interface ThemeColors {
   selectedListItemBackground?: string;
   selectedListItemBorderColor?: string;
   selectedListItemTextColor?: string;
+  panelHeaderBackground?: string; // Background for individual panel title bars
+  panelHeaderText?: string;     // Text color for individual panel title bars
 }
 
 export interface AppTheme {
@@ -68,6 +70,8 @@ export const themes: AppTheme = {
     listItemHoverBackground: '#E9ECEF', // Light grey for list item hover
     selectedSlideBorderColor: '#007bff', // Use accent color for selected slide border
     panelHoverBackground: '#F0F0F0', // Fallback hover for panel-like elements
+    panelHeaderBackground: '#E9ECEF', // Light gray, similar to buttonBackground
+    panelHeaderText: '#343A40',       // Darker text, similar to headerText
   },
   dark: {
     widgetBackground: '#0A0A0A', 
@@ -98,5 +102,7 @@ export const themes: AppTheme = {
     listItemHoverBackground: '#1E1E1E', // Subtle hover, slightly lighter than panelBackground
     selectedSlideBorderColor: '#0072C6', // Use dark theme's accentColor for selected slides
     panelHoverBackground: '#1E1E1E', // Consistent hover for panel-like items
+    panelHeaderBackground: '#282828', // Dark gray, similar to buttonBackground
+    panelHeaderText: '#F5F5F5',       // Light text, similar to headerText
   },
 };

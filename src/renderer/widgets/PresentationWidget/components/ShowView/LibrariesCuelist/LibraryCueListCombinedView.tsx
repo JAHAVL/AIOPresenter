@@ -21,8 +21,9 @@ export interface LibraryCueListCombinedViewProps {
   onAddLibrary: () => void;
   onAddCuelist: () => void;
   onSelectCue: (cueId: string) => void;
+  allCues: Cue[];
   selectedCueId: string | null;
-  onAddItemToSelectedList: () => void; // New prop for the add button in SelectedItemContentView
+  onAddItemToSelectedList?: () => void; // New prop for the add button in SelectedItemContentView, made optional
 }
 
 const LibraryCueListCombinedView: React.FC<LibraryCueListCombinedViewProps> = ({
@@ -38,7 +39,8 @@ const LibraryCueListCombinedView: React.FC<LibraryCueListCombinedViewProps> = ({
   onAddCuelist,
   onSelectCue,
   selectedCueId,
-  onAddItemToSelectedList,
+  allCues,
+  onAddItemToSelectedList = () => { console.warn('onAddItemToSelectedList not implemented or passed'); }, // Provide a default no-op if not passed
 }) => {
   console.log('[LibraryCueListCombinedView] Rendering with two-panel layout...');
   console.log('[LibraryCueListCombinedView] Libraries prop:', libraries);

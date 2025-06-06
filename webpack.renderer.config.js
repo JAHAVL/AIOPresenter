@@ -1,6 +1,7 @@
 const path = require('path');
 const webpack = require('webpack');
 const HtmlWebpackPlugin = require('html-webpack-plugin');
+const ReactRefreshWebpackPlugin = require('@pmmmwh/react-refresh-webpack-plugin');
 const { merge } = require('webpack-merge');
 const baseConfig = require('../webpack.config');
 
@@ -21,7 +22,7 @@ const devServer = isDevelopment ? {
   },
   historyApiFallback: true,
   devMiddleware: {
-    publicPath: '/',
+    publicPath: '/', // Explicitly set for devServer
     // Writing files to disk helps with HMR in Electron
     writeToDisk: true,
   },
@@ -36,7 +37,7 @@ module.exports = merge(baseConfig, {
     path: path.resolve(__dirname, 'dist/renderer'),
     filename: 'bundle.js',
     clean: true,
-    publicPath: '/',
+    publicPath: isDevelopment ? '/' : './',
   },
   node: {
     __dirname: false,
@@ -50,6 +51,7 @@ module.exports = merge(baseConfig, {
       '@icons': path.resolve(__dirname, 'src/renderer/widgets/PresentationWidget/assets/icons/'),
       '@theme': path.resolve(__dirname, 'src/renderer/widgets/PresentationWidget/theme/'),
       '@projectTypes': path.resolve(__dirname, 'src/renderer/widgets/PresentationWidget/types/'),
+      '@PresentationWidgetMocks': path.resolve(__dirname, 'src/renderer/widgets/PresentationWidget/data/mockData/'),
       // Aliases from baseConfig like @utils and @shared will still apply unless overridden
     },
     fallback: {
@@ -74,7 +76,8 @@ module.exports = merge(baseConfig, {
         isDevelopment: isDevelopment
       }
     }),
-  ],
+    isDevelopment && new ReactRefreshWebpackPlugin(),
+  ].filter(Boolean),
   // Use the devServer configuration we defined above
   devServer,
 });

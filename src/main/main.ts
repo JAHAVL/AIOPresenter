@@ -294,17 +294,15 @@ function createTray() {
 
 app.whenReady().then(async () => {
   console.log('[main.ts] app.whenReady().then() --- BLOCK ENTERED ---');
-  // console.log('[main.ts] App is ready, calling createWindow and createTray...');
-  await createWindow();
-  createTray();
-  
-  // Initialize IPC handlers
+
+  // Initialize IPC handlers FIRST
   let initError: any = null; // Changed to 'any' to store potential error object
   (ipcMain as any).__MAIN_TS_MARKER__ = 'SetDirectlyInMainTS_IPC_Instance';
   console.log('[main.ts] Marked ipcMain instance with __MAIN_TS_MARKER__:', (ipcMain as any).__MAIN_TS_MARKER__);
 
   const sendMainDebug = (source: string, message: string, data?: any) => {
     console.log(`[main.ts DEBUG] ${source}: ${message}`, data || '');
+    // mainWindow might be null here if called before createWindow, so check it
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send(StorageChannel.MAIN_PROCESS_DEBUG_MESSAGE, {
         source,
@@ -314,34 +312,11 @@ app.whenReady().then(async () => {
     }
   };
 
-  sendMainDebug('initial_state', 'Initial ipcMain event names.', { eventNames: ipcMain.eventNames() });
+  sendMainDebug('initial_state', 'Initial ipcMain event names (before any handler registration).', { eventNames: ipcMain.eventNames() });
 
-  sendMainDebug('main.ts_before_on_test', 'ipcMain._invokeHandlers before test-on-reply registration', {
-    // @ts-ignore
-    invokeHandlers: ipcMain._invokeHandlers ? Object.keys(ipcMain._invokeHandlers) : 'undefined or null'
-  });
-
-  ipcMain.on('test-on-reply', (event, arg) => {
-    sendMainDebug('main.ts_on_test_received', `'test-on-reply' received in main process with arg: ${arg}`, { data: arg });
-    event.reply('test-on-reply-back', { message: `Main process received: ${arg} and says hello!` });
-  });
-
-  sendMainDebug('main.ts_after_on_test', 'ipcMain._invokeHandlers after test-on-reply registration (should be unchanged by .on)', {
-    // @ts-ignore
-    invokeHandlers: ipcMain._invokeHandlers ? Object.keys(ipcMain._invokeHandlers) : 'undefined or null'
-  });
-  sendMainDebug('main.ts_after_on_test_eventNames', 'ipcMain.eventNames after test-on-reply registration (should include test-on-reply)', { eventNames: ipcMain.eventNames() });
-
-  // Test handler registration directly in main.ts BEFORE initializeStorageIpcHandlers
+  // Call initializeStorageIpcHandlers (and other IPC initializations like setupInputHandlers if they exist)
   try {
-    ipcMain.handle('test-direct-before', () => 'response from test-direct-before');
-    sendMainDebug('direct_handle_before', 'Attempted to register "test-direct-before". Event names now:', { eventNames: ipcMain.eventNames() });
-  } catch (e: any) {
-    sendMainDebug('direct_handle_before_error', 'Error registering "test-direct-before"', { error: e.message, eventNames: ipcMain.eventNames() });
-  }
-
-  // Call initializeStorageIpcHandlers
-  try {
+    // Note: mainWindow will be null here, storageHandlers is designed to handle this for debug logs.
     initializeStorageIpcHandlers(ipcMain, mainWindow, StorageService);
     sendMainDebug('after_storage_handlers_call', 'SUCCESS: initializeStorageIpcHandlers completed. Event names now:', { eventNames: ipcMain.eventNames() });
   } catch (error) {
@@ -350,15 +325,18 @@ app.whenReady().then(async () => {
     initError = error; // Keep for final summary
   }
 
-  // Test handler registration directly in main.ts AFTER initializeStorageIpcHandlers
-  try {
-    ipcMain.handle('test-direct-after', () => 'response from test-direct-after');
-    sendMainDebug('direct_handle_after', 'Attempted to register "test-direct-after". Event names now:', { eventNames: ipcMain.eventNames() });
-  } catch (e: any) {
-    sendMainDebug('direct_handle_after_error', 'Error registering "test-direct-after"', { error: e.message, eventNames: ipcMain.eventNames() });
-  }
+  // TODO: Consider moving setupInputHandlers here as well if it exists and follows a similar pattern
 
-  sendMainDebug('final_ipc_state', 'Final ipcMain event names after all handler initializations.', { eventNames: ipcMain.eventNames(), initializationError: initError ? (initError instanceof Error ? initError.message : String(initError)) : null });
+  sendMainDebug('final_ipc_state_before_createWindow', 'Final ipcMain event names after initial handler setup, before createWindow.', { eventNames: ipcMain.eventNames(), initializationError: initError ? (initError instanceof Error ? initError.message : String(initError)) : null });
+
+  // Now create the window and tray
+  // console.log('[main.ts] App is ready, calling createWindow and createTray...');
+  await createWindow();
+  createTray();
+  
+  // The rest of the debug logging and specific test handlers can remain or be adjusted as needed
+  // For instance, sendMainDebug can now use the fully initialized mainWindow if called from here onwards.
+
 
   // console.log('[main.ts] IPC handlers initialized.');
 

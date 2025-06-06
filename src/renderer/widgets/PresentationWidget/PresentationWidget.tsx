@@ -13,7 +13,7 @@ import LibraryCueListCombinedView from './components/ShowView/LibrariesCuelist/L
 
 // Placeholder types and data (ideally imported from actual files)
 import type { ThemeColors } from './theme';
-import type { Slide, Library, Cuelist, PresentationFile, Cue } from './types/presentationSharedTypes';
+import type { Slide, Library, Cuelist, PresentationFile, Cue } from '@customTypes/presentationSharedTypes';
 
 // Placeholder for uuid if not installed - REMOVE IF UUID IS PROPERLY INSTALLED AND IMPORTED
 const uuidv4 = () => Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
@@ -31,23 +31,43 @@ const initialSlidesData: Slide[] = [
 
 type PanelId = 'output' | 'slides' | 'libraryCueList' | 'automation';
 
+// Configuration for initial panel layout based on percentages
+interface PanelConfig {
+  id: PanelId;
+  defaultXPercent: string;
+  defaultYPercent: string;
+  defaultWidthPercent: string;
+  defaultHeightPercent: string;
+  zIndex: number;
+  minWidthPx?: number;
+  minHeightPx?: number;
+}
+
+const staticPanelConfigs: PanelConfig[] = [
+  { id: 'output',       defaultXPercent: '0%',   defaultYPercent: '0%',   defaultWidthPercent: '50%', defaultHeightPercent: '50%', zIndex: 1, minWidthPx: 200, minHeightPx: 150 },
+  { id: 'slides',       defaultXPercent: '50%',  defaultYPercent: '0%',   defaultWidthPercent: '50%', defaultHeightPercent: '50%', zIndex: 2, minWidthPx: 200, minHeightPx: 150 },
+  { id: 'libraryCueList', defaultXPercent: '0%',   defaultYPercent: '50%',  defaultWidthPercent: '50%', defaultHeightPercent: '50%', zIndex: 3, minWidthPx: 200, minHeightPx: 150 },
+  { id: 'automation',   defaultXPercent: '50%',  defaultYPercent: '50%',  defaultWidthPercent: '50%', defaultHeightPercent: '50%', zIndex: 4, minWidthPx: 200, minHeightPx: 150 },
+];
+
+// State for panel layouts, using pixel values
+interface SnapLine {
+  type: 'horizontal' | 'vertical';
+  value: number;
+  start: number;
+  end: number;
+}
+
 interface PanelLayoutState {
   id: PanelId;
   x: number;
   y: number;
-  width: string | number;
-  height: string | number;
+  width: number;
+  height: number;
   zIndex: number;
   minWidth?: number;
   minHeight?: number;
 }
-
-const initialPanelLayouts: PanelLayoutState[] = [
-  { id: 'output', x: 0, y: 0, width: '50%', height: '50%', zIndex: 1, minWidth: 200, minHeight: 150 },
-  { id: 'slides', x: 0, y: 0, width: '50%', height: '50%', zIndex: 2, minWidth: 200, minHeight: 150 },
-  { id: 'libraryCueList', x: 0, y: 0, width: '50%', height: '50%', zIndex: 3, minWidth: 200, minHeight: 150 },
-  { id: 'automation', x: 0, y: 0, width: '50%', height: '50%', zIndex: 4, minWidth: 200, minHeight: 150 },
-];
 
 interface PresentationWidgetProps {
   themeColors?: ThemeColors;
@@ -74,6 +94,8 @@ interface LibraryCueListCombinedViewProps {
 }
 
 const PresentationWidget: React.FC<PresentationWidgetProps> = ({ themeColors = defaultThemeColors }) => {
+  const gridContainerRef = useRef<HTMLDivElement>(null);
+  const [panelLayouts, setPanelLayouts] = useState<PanelLayoutState[]>([]);
   const [libraries, setLibraries] = useState<Library[]>([]);
   console.log('[PresentationWidget] Initial libraries state:', libraries);
 
@@ -143,7 +165,31 @@ const PresentationWidget: React.FC<PresentationWidgetProps> = ({ themeColors = d
         cleanupListener();
       }
     };
-  }, [fetchLibraries]); // fetchLibraries is memoized with useCallback
+  }, [fetchLibraries]);  
+
+  useEffect(() => {
+    if (gridContainerRef.current) {
+      const containerWidth = gridContainerRef.current.offsetWidth;
+      const containerHeight = gridContainerRef.current.offsetHeight;
+
+      const parsePercentToPixels = (percentStr: string, totalPixels: number): number => {
+        if (!percentStr || totalPixels === 0) return 0;
+        return (parseFloat(percentStr) / 100) * totalPixels;
+      };
+
+      const newLayouts = staticPanelConfigs.map(config => ({
+        id: config.id,
+        x: parsePercentToPixels(config.defaultXPercent, containerWidth),
+        y: parsePercentToPixels(config.defaultYPercent, containerHeight),
+        width: parsePercentToPixels(config.defaultWidthPercent, containerWidth),
+        height: parsePercentToPixels(config.defaultHeightPercent, containerHeight),
+        zIndex: config.zIndex,
+        minWidth: config.minWidthPx,
+        minHeight: config.minHeightPx,
+      }));
+      setPanelLayouts(newLayouts);
+    }
+  }, []);  
 
   useEffect(() => {
     console.log('[PresentationWidget] Setting up main process debug message listener...');
@@ -210,15 +256,15 @@ const PresentationWidget: React.FC<PresentationWidgetProps> = ({ themeColors = d
     return initialSlidesData.length > 0 ? initialSlidesData[0].id : null;
   });
 
-  const [panelLayouts, setPanelLayouts] = useState<PanelLayoutState[]>(initialPanelLayouts);
+  const [currentPresentationFile, setCurrentPresentationFile] = useState<PresentationFile | null>(null);
+  const [activePanel, setActivePanel] = useState<PanelId | null>(null);
+  const [snapLines, setSnapLines] = useState<SnapLine[]>([]); 
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [visualSnapLines, setVisualSnapLines] = useState<{h: number[], v: number[]}>({ h: [], v: [] });
-  const [nextZ, setNextZ] = useState<number>(initialPanelLayouts.length + 1);
+  const [nextZ, setNextZ] = useState<number>(staticPanelConfigs.length + 1);
 
   const SNAP_THRESHOLD = 5; // pixels
   const GRID_INTERVAL = 20; // pixels
-
-  const gridContainerRef = useRef<HTMLDivElement>(null);
 
   const parsePixelValue = (value: string | number): number => {
     if (typeof value === 'number') return value;
@@ -442,15 +488,31 @@ const PresentationWidget: React.FC<PresentationWidgetProps> = ({ themeColors = d
           );
         }
       case 'slides':
-        console.log('Rendering SlidesView component.');
+        console.log('Rendering slides panel with slides:', slides);
         return (
-          <SlidesView
-            themeColors={{} as any}
-            slides={slides || []}
-            selectedSlideIds={selectedSlideIds || []}
-            onSelectSlide={handleSelectSlide}
-            onUpdateSlides={handleUpdateSlides}
-          />
+          <div style={{ display: 'flex', flexDirection: 'column', width: '100%', height: '100%' }}>
+            <div style={{
+              padding: '8px 10px',
+              backgroundColor: themeColors.panelHeaderBackground || '#404040',
+              color: themeColors.panelHeaderText || 'white',
+              fontWeight: 'bold',
+              fontSize: '14px',
+              textAlign: 'center',
+              borderBottom: `1px solid ${themeColors.borderColor || '#555'}`, 
+              flexShrink: 0 
+            }}>
+              Slides View
+            </div>
+            <div style={{ flexGrow: 1, overflow: 'auto', padding: '10px' }}> {/* Inner padding for SlidesView content */}
+              <SlidesView
+                themeColors={themeColors}
+                slides={slides || []}
+                selectedSlideIds={selectedSlideIds || []}
+                onSelectSlide={handleSelectSlide}
+                onUpdateSlides={handleUpdateSlides}
+              />
+            </div>
+          </div>
         );
       case 'libraryCueList':
         console.log('Rendering LibraryCueListCombinedView component - START.');
@@ -476,6 +538,7 @@ const PresentationWidget: React.FC<PresentationWidgetProps> = ({ themeColors = d
                   onAddCuelist={() => console.log('Add cuelist clicked')}
                   onSelectCue={(cueId) => console.log('Selected cue:', cueId)}
                   selectedCueId={null}
+                  allCues={[]}
                   onAddItemToSelectedList={() => console.log('Add item to selected list clicked')}
                 />
               </div>
@@ -560,24 +623,26 @@ const PresentationWidget: React.FC<PresentationWidgetProps> = ({ themeColors = d
       </div>
       <div style={gridContainerStyle} ref={gridContainerRef}>
         {panelLayouts.map(panel => {
-          const commonRndProps: Partial<RndProps> = {
-            style: { ...rndStyle, zIndex: panel.zIndex },
-            position: { x: panel.x, y: panel.y },
-            size: { width: panel.width, height: panel.height },
-            onDragStart: () => handleDragStart(panel.id),
-            onDragStop: (e, d) => handleDragStop(panel.id, e, d),
-            onResizeStop: (e, dir, ref, delta, position) => handleResizeStop(panel.id, e, dir, ref, delta, position),
-            minWidth: panel.minWidth,
-            minHeight: panel.minHeight,
-            bounds: 'parent',
-          };
-
           return (
-            <Rnd key={panel.id} {...commonRndProps}>
-              <div style={gridItemContentStyle}>{renderPanelContent(panel.id)}</div>
+            <Rnd
+              key={panel.id}
+              style={{ ...rndStyle, zIndex: panel.zIndex }} // Use standard rndStyle
+              position={{ x: panel.x, y: panel.y }}
+              size={{ width: panel.width, height: panel.height }}
+              onDragStart={() => handleDragStart(panel.id)}
+              onDragStop={(e, d) => handleDragStop(panel.id, e, d)}
+              onResizeStop={(e, dir, ref, delta, position) => handleResizeStop(panel.id, e, dir, ref, delta, position)}
+              minWidth={panel.minWidth}
+              minHeight={panel.minHeight}
+              bounds="parent"
+            >
+              <div style={gridItemContentStyle}>
+                {renderPanelContent(panel.id)}
+              </div>
             </Rnd>
           );
         })}
+        {/* Render snap lines if implemented - placeholder for now */}
       </div>
     </div>
   );

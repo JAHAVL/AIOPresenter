@@ -35,6 +35,10 @@ export interface ThemeColors {
   toggleButtonActiveText: string; 
   toggleButtonInactiveText: string; 
 
+  // Enhanced Button Styles
+  buttonActiveBackground: string;
+  buttonBorderColor?: string; // Optional: for button borders
+
   iconColor: string;
   iconHoverColor: string;
 
@@ -58,6 +62,10 @@ export interface ThemeColors {
 
   // Properties added from new lint error
   listItemHoverBackground: string;
+  listItemText: string; // For general text in list items
+  selectedItemBackground: string;
+  selectedItemAccentColor: string; // For the left accent bar on selected items
+  selectedListItemText: string; // For text in selected list items
   selectedSlideBorderColor: string;
 }
 
@@ -84,6 +92,8 @@ export const defaultDarkThemeColors: ThemeColors = {
   buttonBackground: '#303030', // Default button background
   buttonText: '#E0E0E0', // Default button text
   buttonHoverBackground: '#383838', // Slightly lighter for hover
+  buttonActiveBackground: '#4A4A4A', // Darker than hover for active/pressed state
+  buttonBorderColor: '#505050', // Using accent color for button borders
   toggleButtonActive: '#4CAF50', // A subtle accent color for active toggle (can be grey too)
   toggleButtonInactive: 'transparent',
   toggleButtonActiveText: '#FFFFFF',
@@ -97,6 +107,10 @@ export const defaultDarkThemeColors: ThemeColors = {
   slidePreviewBackground: '#000000', // Pure black for slide preview
   slideListItemActiveBackground: '#424242', // Primary dark grey for active item
   slideListItemHoverBackground: '#2C2C2C', // Secondary panel bg for hover
+  listItemText: '#E0E0E0', // Defaulting to the general text color
+  selectedItemBackground: '#383838', // A bit lighter than panel, similar to button hover
+  selectedItemAccentColor: '#1976D2', // A noticeable blue for the accent bar
+  selectedListItemText: '#F5F5F5', // Brighter text for selected item for contrast
   scrollbarThumb: '#505050',
   scrollbarTrack: '#1E1E1E',
 
@@ -134,6 +148,8 @@ export const defaultLightThemeColors: ThemeColors = {
   buttonBackground: '#E5E5EA', // Light grey button
   buttonText: '#000000', // Black text
   buttonHoverBackground: '#DCDCE0', // Slightly darker for hover
+  buttonActiveBackground: '#C7C7CC', // Darker than hover for active/pressed
+  buttonBorderColor: '#C7C7CC',     // Light grey border
   toggleButtonActive: '#007AFF',
   toggleButtonInactive: 'transparent',
   toggleButtonActiveText: '#FFFFFF',
@@ -147,6 +163,10 @@ export const defaultLightThemeColors: ThemeColors = {
   slidePreviewBackground: '#EFEFF4',
   slideListItemActiveBackground: '#007AFF',
   slideListItemHoverBackground: '#E5E5EA',
+  listItemText: '#000000', // Black text for list items
+  selectedItemBackground: '#D1E8FF', // Light blue background for selected items
+  selectedItemAccentColor: '#007AFF', // Primary blue for the accent bar
+  selectedListItemText: '#000000', // Black text for selected items
   scrollbarThumb: '#AEAEB2',
   scrollbarTrack: '#F2F2F7',
 

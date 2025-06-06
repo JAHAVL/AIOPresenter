@@ -1,5 +1,6 @@
 import React from 'react';
-import PresentationWidget from '../widgets/PresentationWidget/PresentationWidget'; // Import the widget
+import { defaultTheme, type ThemeColors } from '../widgets/PresentationWidget/theme/theme';
+import PresentationWidget from '../widgets/PresentationWidget/views/PresentationWidget'; // Import the widget
 
 const PresentingPage: React.FC = () => {
   const pageStyle: React.CSSProperties = {
@@ -19,7 +20,7 @@ const PresentingPage: React.FC = () => {
     <div style={pageStyle}>
       {/* Content for the Presenting page will go here */}
       {/* This is a blank container for now */}
-      <PresentationWidget />
+      <PresentationWidget themeColors={defaultTheme.colors} />
     </div>
   );
 };

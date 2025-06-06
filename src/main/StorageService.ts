@@ -4,7 +4,7 @@ import { app, BrowserWindow } from 'electron';
 import path from 'path';
 import fs from 'fs'; // Still needed for some synchronous checks and other file ops
 import chokidar, { FSWatcher } from 'chokidar'; // Added for robust watching
-import { PATH_CONFIG } from '../utils/pathconfig';
+import { PATH_CONFIG } from '@utils/pathconfig';
 import { StorageChannel, Cue } from '../shared/ipcChannels';
 
 class StorageService {
@@ -193,6 +193,36 @@ class StorageService {
     }
   }
 
+  public async getLibraryCues(libraryName: string): Promise<Cue[]> {
+    const libraryPath = path.join(this.presentationLibraryPath, libraryName);
+    const cueFilePath = path.join(libraryPath, 'cue.json'); // Using 'cue.json' directly
+    console.log(`[SS_DEBUG_MAIN] getLibraryCues: Attempting to read cues for library '${libraryName}' from ${cueFilePath}`);
+
+    try {
+      // First, ensure the library directory itself exists
+      if (!(await this.directoryExists(libraryPath))) {
+        console.warn(`[SS_DEBUG_MAIN] getLibraryCues: Library folder '${libraryName}' does not exist at ${libraryPath}. Returning empty cues.`);
+        return [];
+      }
+
+      // Check if cue.json exists before trying to read it
+      await fs.promises.access(cueFilePath, fs.constants.F_OK);
+      const fileContent = await fs.promises.readFile(cueFilePath, 'utf-8');
+      const cues: Cue[] = JSON.parse(fileContent);
+      console.log(`[SS_DEBUG_MAIN] getLibraryCues: Successfully read and parsed cues for library '${libraryName}'. Found ${cues.length} cues.`);
+      return cues;
+    } catch (error: any) {
+      if (error.code === 'ENOENT') {
+        // This means cue.json was not found, which is a common case for an empty library or one without cues yet.
+        console.log(`[SS_DEBUG_MAIN] getLibraryCues: cue.json not found for library '${libraryName}' at ${cueFilePath}. Returning empty cues.`);
+      } else {
+        // Other errors (e.g., parsing error, permissions)
+        console.error(`[SS_DEBUG_MAIN] getLibraryCues: Error reading or parsing cue.json for library '${libraryName}':`, error.message);
+      }
+      return []; // Return empty array if cue.json doesn't exist or on other errors
+    }
+  }
+
   private startWatchingLibrariesDirectory(): void {
     console.log('[SS_DEBUG_MAIN] startWatchingLibrariesDirectory: Attempting to start watcher.');
     if (this.libraryWatcher) {
@@ -222,21 +252,47 @@ class StorageService {
       this.libraryWatcher
         .on('addDir', (eventPath: string) => {
           console.log(`[SS_DEBUG_MAIN] Watcher Event (addDir): Path: ${eventPath}.`);
-          console.log(`[SS_DEBUG_MAIN] Watcher Event (addDir): Sending ${StorageChannel.LIBRARIES_DID_CHANGE} to all windows.`);
-          BrowserWindow.getAllWindows().forEach((win) => {
-            if (win && win.webContents && !win.webContents.isDestroyed()) {
-              win.webContents.send(StorageChannel.LIBRARIES_DID_CHANGE);
-            }
-          });
+          const channelToSend_addDir = StorageChannel.LIBRARIES_DID_CHANGE;
+          console.log(`[SS_DEBUG_MAIN] Watcher Event (addDir): Channel to send is '${channelToSend_addDir}'. Sending to all windows.`);
+          
+          // Only send events for changes in the libraries directory, not subdirectories
+          const libraryPath = this.presentationLibraryPath;
+          if (eventPath !== libraryPath && path.dirname(eventPath) === libraryPath) {
+            console.log(`[SS_DEBUG_MAIN] Detected new library folder: ${path.basename(eventPath)}`);
+            
+            BrowserWindow.getAllWindows().forEach((win) => {
+              if (win && win.webContents && !win.webContents.isDestroyed()) {
+                // Send with both the enum and direct string for maximum compatibility
+                win.webContents.send(StorageChannel.LIBRARIES_DID_CHANGE);
+                win.webContents.send('storage:presentation-libraries-did-change');
+                console.log(`[SS_DEBUG_MAIN] IPC event sent to window ${win.id} on channel: ${StorageChannel.LIBRARIES_DID_CHANGE}`);
+              }
+            });
+          } else {
+            console.log(`[SS_DEBUG_MAIN] Ignoring addDir event for path that is not a direct library folder: ${eventPath}`);
+          }
         })
         .on('unlinkDir', (eventPath: string) => {
           console.log(`[SS_DEBUG_MAIN] Watcher Event (unlinkDir): Path: ${eventPath}.`);
-          console.log(`[SS_DEBUG_MAIN] Watcher Event (unlinkDir): Sending ${StorageChannel.LIBRARIES_DID_CHANGE} to all windows.`);
-          BrowserWindow.getAllWindows().forEach((win) => {
-            if (win && win.webContents && !win.webContents.isDestroyed()) {
-              win.webContents.send(StorageChannel.LIBRARIES_DID_CHANGE);
-            }
-          });
+          const channelToSend_unlinkDir = StorageChannel.LIBRARIES_DID_CHANGE;
+          console.log(`[SS_DEBUG_MAIN] Watcher Event (unlinkDir): Channel to send is '${channelToSend_unlinkDir}'. Sending to all windows.`);
+          
+          // Only send events for changes in the libraries directory, not subdirectories
+          const libraryPath = this.presentationLibraryPath;
+          if (eventPath !== libraryPath && path.dirname(eventPath) === libraryPath) {
+            console.log(`[SS_DEBUG_MAIN] Detected removed library folder: ${path.basename(eventPath)}`);
+            
+            BrowserWindow.getAllWindows().forEach((win) => {
+              if (win && win.webContents && !win.webContents.isDestroyed()) {
+                // Send with both the enum and direct string for maximum compatibility
+                win.webContents.send(StorageChannel.LIBRARIES_DID_CHANGE);
+                win.webContents.send('storage:presentation-libraries-did-change');
+                console.log(`[SS_DEBUG_MAIN] IPC event sent to window ${win.id} on channel: ${StorageChannel.LIBRARIES_DID_CHANGE}`);
+              }
+            });
+          } else {
+            console.log(`[SS_DEBUG_MAIN] Ignoring unlinkDir event for path that is not a direct library folder: ${eventPath}`);
+          }
         })
         .on('error', (error: unknown) => {
           console.error(`[SS_DEBUG_MAIN] Watcher Error for ${this.presentationLibraryPath}:`, error);
@@ -253,6 +309,50 @@ class StorageService {
 
   public getDefaultUserLibraryPath(): string {
     return this.defaultUserLibraryPath;
+  }
+
+  public async createUserLibrary(libraryName: string): Promise<{ success: boolean; path?: string; error?: string }> {
+    console.log(`[SS_DEBUG_MAIN] createUserLibrary: Attempting to create library: ${libraryName}`);
+    if (!libraryName || libraryName.trim() === '') {
+      console.warn('[SS_DEBUG_MAIN] createUserLibrary: Library name cannot be empty.');
+      return { success: false, error: 'Library name cannot be empty.' };
+    }
+
+    // Basic sanitization for library name to prevent path traversal or invalid characters
+    const sanitizedLibraryName = libraryName.replace(/[\/:*?"<>|]/g, '');
+    if (sanitizedLibraryName !== libraryName) {
+      console.warn(`[SS_DEBUG_MAIN] createUserLibrary: Library name contained invalid characters. Original: '${libraryName}', Sanitized: '${sanitizedLibraryName}'`);
+      // Optionally, you could reject here or proceed with sanitized name
+      // For now, let's inform and proceed with sanitized, but this might need stricter rules
+      if (!sanitizedLibraryName) {
+        return { success: false, error: 'Library name became empty after sanitization due to invalid characters.' };
+      }
+    }
+
+    const libraryPath = path.join(this.presentationLibraryPath, sanitizedLibraryName);
+    console.log(`[SS_DEBUG_MAIN] createUserLibrary: Target library path: ${libraryPath}`);
+
+    try {
+      // Check if it already exists (as a directory)
+      const stats = await fs.promises.stat(libraryPath).catch(() => null);
+      if (stats && stats.isDirectory()) {
+        console.warn(`[SS_DEBUG_MAIN] createUserLibrary: Library directory already exists: ${libraryPath}`);
+        return { success: false, error: `Library '${sanitizedLibraryName}' already exists.` };
+      }
+      // If it exists but is not a directory (e.g. a file), that's also an issue
+      if (stats && !stats.isDirectory()) {
+        console.error(`[SS_DEBUG_MAIN] createUserLibrary: A file with the name '${sanitizedLibraryName}' already exists at the library location.`);
+        return { success: false, error: `A file (not a directory) named '${sanitizedLibraryName}' already exists. Cannot create library.` };
+      }
+
+      await this.ensureDirectoryExists(libraryPath);
+      console.log(`[SS_DEBUG_MAIN] createUserLibrary: Successfully created or ensured library directory: ${libraryPath}`);
+      return { success: true, path: libraryPath };
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error(`[SS_DEBUG_MAIN] createUserLibrary: Error creating library directory ${libraryPath}:`, errorMessage);
+      return { success: false, error: `Failed to create library '${sanitizedLibraryName}': ${errorMessage}` };
+    }
   }
 
   public getMediaLibraryPath(): string {

@@ -1,14 +1,14 @@
 // src/preload/preload.ts
 console.log('<<<<< PRELOAD SCRIPT VERSION XXXXX - TOP OF FILE - JUNE 05 2025 12:08 PM >>>>>');
 import { contextBridge, ipcRenderer, IpcRendererEvent } from 'electron';
-import { StorageChannel, LogChannel, Library } from '../../../src/shared/ipcChannels'; // Ensure this path is correct
+import { StorageChannel, Library } from '../shared/ipcChannels';
 // import { MainProcessDebugPayload } from './types'; // Assuming types.ts or similar, commented out for now
 // import { MainChannel, FileChannel } from './constants'; // Assuming constants.ts or similar, commented out for now
 
 console.log('[preload.ts] Preload script executing...');
 
 const validChannelsReceive = [
-  LogChannel.MAIN_PROCESS_LOG,
+  // LogChannel.MAIN_PROCESS_LOG, // Commented out as LogChannel is not available from @shared/ipcChannels
   'pong'
   // StorageChannel.DEBUG_MAIN_PROCESS_LOG, // Removed, does not exist
   // StorageChannel.MAIN_PROCESS_DEBUG_MESSAGE // Removed, does not exist
@@ -65,32 +65,48 @@ const electronAPIExports = {
   loadImageAsDataURL: (filePath: string) => ipcRenderer.invoke('file:load-image-data-url' /* FileChannel.LOAD_IMAGE_AS_DATA_URL */, filePath),
 
   // List User Libraries (using invoke)
-  listUserLibraries: (): Promise<Library[]> => {
-    const enumChannelValue = StorageChannel.LIST_USER_LIBRARIES;
-    console.log(`[preload.ts] listUserLibraries (invoke version): Value of StorageChannel.LIST_USER_LIBRARIES is '${enumChannelValue}'`);
-    const correctChannel = 'storage:list-user-libraries'; // Hardcoded correct channel
-    console.log(`[preload.ts] listUserLibraries (invoke version): Invoking on HARDCODED channel '${correctChannel}' (enum was '${enumChannelValue}')`);
-    console.log('<<<<< PRELOAD SCRIPT VERSION XXXXX - INSIDE listUserLibraries (invoke) - JUNE 05 2025 >>>>>');
-    return ipcRenderer.invoke(correctChannel).then((libraries: Library[]) => {
-      console.log('[preload.ts] listUserLibraries resolved:', libraries);
-      return libraries;
-    });
+  listUserLibraries: (): Promise<{ success: boolean; data?: Library[]; error?: string }> => {
+    const channel = StorageChannel.LIST_USER_LIBRARIES;
+    console.log(`[preload.ts] listUserLibraries (invoke version): Attempting to invoke on channel (from enum StorageChannel.LIST_USER_LIBRARIES): '${channel}'`);
+    console.log('<<<<< PRELOAD SCRIPT VERSION XXXXX - INSIDE listUserLibraries (invoke) - JUNE 06 2025 - ENUM ONLY >>>>>');
+    return ipcRenderer.invoke(channel)
+      .then((libraries: Library[]) => {
+        console.log('[preload.ts] listUserLibraries resolved successfully with data:', libraries);
+        return { success: true, data: libraries };
+      })
+      .catch((err: Error) => {
+        console.error('[preload.ts] listUserLibraries failed:', err);
+        return { success: false, error: err.message };
+      });
   },
 
   // General on listener (if needed for other dynamic channels, use with caution)
   on: (channel: string, listener: (event: IpcRendererEvent, ...args: any[]) => void) => {
-    ipcRenderer.on(channel, listener);
-    return () => ipcRenderer.removeListener(channel, listener); // Return cleanup
+    console.log(`[preload.ts] Setting up listener for channel: '${channel}'`);
+    
+    // Create a wrapper function to ensure we log when events are received
+    const wrappedListener = (event: IpcRendererEvent, ...args: any[]) => {
+      console.log(`[preload.ts] 🔔 IPC Event received on channel: '${channel}'`, args);
+      listener(event, ...args);
+    };
+    
+    ipcRenderer.on(channel, wrappedListener);
+    
+    // Return cleanup function that removes the wrapped listener
+    return () => {
+      console.log(`[preload.ts] Removing listener for channel: '${channel}'`);
+      ipcRenderer.removeListener(channel, wrappedListener);
+    };
   },
   // Add any other methods that were part of your electronAPI object here
   // e.g. getAIOPaths: () => ipcRenderer.invoke('get-aio-paths'),
 
   // Listener for logs from main process services (like StorageService)
-  onMainProcessServiceLog: (callback: (payload: { source: string; type: 'log' | 'error' | 'warn'; messages: string[] }) => void) => {
+  onMainProcessServiceLog: (callback: (payload: { source: string; type: 'log' | 'error' | 'warn'; messages: string[] }) => void) => { // eslint-disable-line @typescript-eslint/no-unused-vars
     const handler = (_event: IpcRendererEvent, payload: { source: string; type: 'log' | 'error' | 'warn'; messages: string[] }) => callback(payload);
-    ipcRenderer.on(LogChannel.MAIN_PROCESS_LOG, handler);
+    // ipcRenderer.on(LogChannel.MAIN_PROCESS_LOG, handler); // Commented out as LogChannel is not available
     return () => {
-      ipcRenderer.removeListener(LogChannel.MAIN_PROCESS_LOG, handler);
+      // ipcRenderer.removeListener(LogChannel.MAIN_PROCESS_LOG, handler); // Commented out as LogChannel is not available
     };
   }
 };
@@ -109,11 +125,11 @@ if (electronAPIExports.listUserLibraries) {
 
 // Setting up the direct listener for main process logs.
 // This doesn't need to be called from the renderer; it just starts listening.
-ipcRenderer.on(LogChannel.MAIN_PROCESS_LOG, (_event, payload: { source: string; type: 'log' | 'error' | 'warn'; messages: string[] }) => {
-  const { source, type, messages } = payload;
-  const logFn = console[type] || console.log;
-  logFn(`%c[${source} via Preload]%c`, 'color: #713AB7; font-weight: bold;', 'color: reset;', ...messages);
-});
+// ipcRenderer.on(LogChannel.MAIN_PROCESS_LOG, (_event, payload: { source: string; type: 'log' | 'error' | 'warn'; messages: string[] }) => { // Commented out as LogChannel is not available
+//   const { source, type, messages } = payload;
+//   const logFn = console[type] || console.log;
+//   logFn(`%c[${source} via Preload]%c`, 'color: #713AB7; font-weight: bold;', 'color: reset;', ...messages);
+// }); // Entire block commented out
 
 contextBridge.exposeInMainWorld('electronAPI', electronAPIExports);
 console.log('[preload.ts] electronAPI exposed to main world.');

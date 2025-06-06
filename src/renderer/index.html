@@ -35,6 +35,6 @@
     <p>Loading AIOPRESENTER...</p>
   </div>
   <!-- Use a dynamic path based on development/production mode -->
-  <script type="module" src="bundle.js"></script>
+  <script type="module" src="bundle.js?t=<%= new Date().getTime() %>"></script>
 </body>
 </html>

@@ -14,6 +14,7 @@ const devServer = isDevelopment ? {
   compress: true,
   port: 8080,
   hot: true,
+  liveReload: true,
   headers: {
     'Cache-Control': 'no-store',
     'Access-Control-Allow-Origin': '*',
@@ -24,12 +25,12 @@ const devServer = isDevelopment ? {
   devMiddleware: {
     publicPath: '/', // Explicitly set for devServer
     // Writing files to disk helps with HMR in Electron
-    writeToDisk: true,
+    // writeToDisk: true, // Commented out to test HMR behavior
   },
 } : {};
 
 module.exports = merge(baseConfig, {
-  cache: false, // Disable webpack's internal cache for the renderer
+  // cache: false, // Disable webpack's internal cache for the renderer - Commented out for HMR
   entry: './src/renderer/index.tsx',
   target: 'web', // Using 'web' ensures proper browser environment
   mode: isDevelopment ? 'development' : 'production',

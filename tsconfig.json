@@ -21,7 +21,7 @@
       "@components/*": ["renderer/components/*"],
       "@utils/*": ["utils/*"],
       "@react-icons/*": ["node_modules/react-icons/*"],
-      "@PresentationWidgetMocks/*": ["renderer/widgets/PresentationWidget/data/mockData/*"],
+      "@PresentationWidgetMocks": ["renderer/widgets/PresentationWidget/data/mockData"],
       "@customTypes/*": ["renderer/types/*"],
       "@shared/*": ["shared/*"]
     },

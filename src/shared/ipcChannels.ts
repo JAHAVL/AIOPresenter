@@ -33,7 +33,7 @@ export interface Library {
   id: string;
   name: string;
   path: string; // Absolute path to the library's folder
-  cues: Cue[]; // A library contains a collection of reusable Cues (e.g., songs)
+  cues: Cue[]; // A library directly contains cues (temporary change)
 }
 
 export interface ListUserLibrariesResponse {
@@ -130,7 +130,7 @@ export type SlideElement = TextSlideElement | ImageSlideElement | VideoSlideElem
 // Represents a single slide within a Cue
 export interface Slide {
   id: string;
-  name?: string; // Optional name for the slide (e.g., "Verse 1", "Chorus Slide 2")
+  name: string; // Name for the slide (e.g., "Verse 1", "Chorus Slide 2")
   elements: SlideElement[];
   backgroundColor?: string;
   notes?: string;
@@ -151,7 +151,7 @@ export interface Cuelist {
   name: string;
   type: 'cuelist' | 'folder'; // To distinguish between cuelists and folders
   parentId?: string; // Optional: ID of the parent folder
-  cues?: Cue[]; // Optional: Array of cues, only for 'cuelist' type
+  cues: Cue[]; // Array of cues, required for 'cuelist' type, should be empty for 'folder' if not applicable
 }
 
 // Represents a Cue and its slides, primarily for use in SlidesView when displaying multiple cues

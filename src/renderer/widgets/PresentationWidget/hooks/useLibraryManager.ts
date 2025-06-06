@@ -20,8 +20,8 @@ export const useLibraryManager = (): UseLibraryManagerReturn => {
     setIsLoading(true);
     setError(null);
     try {
-      if (window.electron?.ipcRenderer) {
-        const response: { success: boolean, data?: ClientUserLibrary[], error?: string } = await window.electron.ipcRenderer.invoke('listUserLibraries');
+      if (window.electronAPI && typeof window.electronAPI.listUserLibraries === 'function') {
+        const response: { success: boolean, data?: ClientUserLibrary[], error?: string } = await window.electronAPI.listUserLibraries();
         if (response.success && response.data) {
           setUserLibraries(response.data);
         } else {
@@ -30,7 +30,7 @@ export const useLibraryManager = (): UseLibraryManagerReturn => {
           if (response.error) setError(new Error(response.error));
         }
       } else {
-        console.warn('Electron IPC not available for fetching user libraries. Using only mock libraries.');
+        console.warn('[useLibraryManager] electronAPI.listUserLibraries not available. Using only mock libraries.');
         setUserLibraries([]); // No user libraries if IPC is not available
       }
     } catch (err) {
@@ -53,7 +53,7 @@ export const useLibraryManager = (): UseLibraryManagerReturn => {
       cues: ul.cues || [], // Directly use cues from ClientUserLibrary
     }));
 
-    const allLibraries = [...mockLibraries, ...mappedUserLibraries];
+    const allLibraries = [...mappedUserLibraries]; // Removed mockLibraries to only show real data
     const unique = Array.from(new Map(allLibraries.map(lib => [lib.id, lib])).values());
     // Sort by name for consistent display
     return unique.sort((a, b) => a.name.localeCompare(b.name));

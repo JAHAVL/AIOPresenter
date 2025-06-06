@@ -1,380 +1,380 @@
-// src/main/main.ts
-// CACHE_BREAKER_COMMENT_JUNE_05_2025_1135_AM
-console.log('<<<<< EXECUTING MAIN.TS - CACHE BREAKER ACTIVE >>>>>');
-import { app, BrowserWindow, ipcMain, Tray, Menu, nativeImage } from 'electron';
-import { StorageChannel } from '../shared/ipcChannels';
+console.log('<<<<<<<<<< TOP LEVEL EXECUTION MARKER IN main.ts >>>>>>>>>>'); // Added for build verification
+import { app, BrowserWindow, ipcMain, Menu, shell, dialog } from 'electron';
 import fs from 'fs';
 import path from 'path';
 import util from 'util';
-
-// Completely disable console output to bypass EPIPE errors
-// Store original console methods
-const originalConsole = { ...console };
-
-// Replace all console methods with no-ops (Commented out to allow file logging)
-// console.log = () => {};
-// console.info = () => {};
-// console.warn = () => {};
-// console.error = () => {};
-// console.debug = () => {};
-
-
-// Redirect console output to a log file
-const logDirectory = app.getPath('userData');
-if (!fs.existsSync(logDirectory)) {
-  fs.mkdirSync(logDirectory, { recursive: true });
-}
-const logFilePath = path.join(logDirectory, 'main.log');
-const logStream = fs.createWriteStream(logFilePath, { flags: 'a' });
-
-console.log = (...args: any[]) => {
-  logStream.write(util.format(...args) + '\n');
-  process.stdout.write(util.format(...args) + '\n'); // Also keep writing to stdout if possible
-};
-console.error = (...args: any[]) => {
-  logStream.write(util.format('ERROR:', ...args) + '\n');
-  process.stderr.write(util.format('ERROR:', ...args) + '\n');
-};
-console.warn = (...args: any[]) => {
-  logStream.write(util.format('WARN:', ...args) + '\n');
-  process.stdout.write(util.format('WARN:', ...args) + '\n');
-};
-console.info = (...args: any[]) => {
-  logStream.write(util.format('INFO:', ...args) + '\n');
-  process.stdout.write(util.format('INFO:', ...args) + '\n');
-};
-console.debug = (...args: any[]) => {
-  logStream.write(util.format('DEBUG:', ...args) + '\n');
-  process.stdout.write(util.format('DEBUG:', ...args) + '\n');
-};
-
-console.log(`<<<<< Main process started. Logging to: ${logFilePath} >>>>>`);
-console.log(`Node.js version: ${process.version}`);
-console.log(`Electron version: ${process.versions.electron}`);
-console.log(`App version: ${app.getVersion()}`);
-console.log(`User Data Path: ${app.getPath('userData')}`);
-
-process.on('uncaughtException', (error) => {
-  console.error('UNCAUGHT EXCEPTION IN MAIN PROCESS:', error);
-  // Optionally, exit or attempt a graceful shutdown
-  // app.quit();
-});
-
-process.on('unhandledRejection', (reason, promise) => {
-  console.error('UNHANDLED REJECTION IN MAIN PROCESS:', reason, promise);
-});
-
-
-import { exec } from 'child_process';
-import 'electron-squirrel-startup';
-import * as PathConfig from '../utils/pathconfig'; // Handles squirrel startup events for windows installers
+import childProcess from 'child_process';
+import squirrelStartup from 'electron-squirrel-startup';
+import { StorageChannel, Cue, Library } from '../shared/ipcChannels';
+import { PATH_CONFIG } from '@utils/pathconfig';
 import { StorageService } from './StorageService';
-import { initializeStorageIpcHandlers } from './ipc/storageHandlers';
-import { setupInputHandlers } from './ipc/inputHandlers';
 
-// Define WEBPACK_DEV_SERVER_URL. vite-plugin-electron will define this during development.
-declare const WEBPACK_DEV_SERVER_URL: string; // Injected by Webpack DefinePlugin in webpack.main.config.js
+import { DebugIPC } from './utils/DebugIPC';
 
+// PathConfig (PATH_CONFIG object) is imported and can be used directly.
+
+// Initialize DebugIPC
+const debugIPC = DebugIPC.getInstance();
+debugIPC.log('Main process DebugIPC initialized.');
+
+// Handle creating/removing shortcuts on Windows when installing/uninstalling.
+if (squirrelStartup) {
+  app.quit();
+}
+
+// --- Global Variables and Constants ---
+const IS_DEVELOPMENT = process.env.NODE_ENV === 'development';
+const IS_MAC = process.platform === 'darwin';
+const LOG_FILE_PATH = path.join(app.getAppPath(), 'main.log'); // Log to project root
+
+// --- Utility Functions ---
+
+/**
+ * Simple file-based logger.
+ * @param message - The message to log.
+ */
+const logToFile = (message: string) => {
+  const timestamp = new Date().toISOString();
+  const logMessage = `[${timestamp}] ${message}\n`;
+  fs.appendFile(LOG_FILE_PATH, logMessage, (err) => {
+    if (err) {
+      originalConsoleError('Failed to write to log file:', err); // Use originalConsoleError to prevent recursion
+    }
+  });
+};
+
+// Redirect console.log and console.error to file and original console
+const originalConsoleLog = console.log;
+const originalConsoleError = console.error;
+
+console.log = (...args: unknown[]) => {
+  const message = util.format(...args);
+  logToFile(`LOG: ${message}`);
+  originalConsoleLog.apply(console, args);
+  debugIPC.log(`LOG: ${message}`); // Send to renderer via DebugIPC
+};
+
+console.error = (...args: unknown[]) => {
+  const message = util.format(...args);
+  logToFile(`ERROR: ${message}`);
+  originalConsoleError.apply(console, args);
+  debugIPC.error(`ERROR: ${message}`); // Send to renderer via DebugIPC
+};
+
+console.log('Main process logging initialized. Log file at:', LOG_FILE_PATH);
+
+// --- Storage Service Initialization ---
+const storageService = StorageService; // StorageService is the imported instance
+// StorageService constructor calls its own private initializeAsync, so no need to call it here.
+// console.log('StorageService instance created. Initialization is handled within its constructor.');
+
+
+// --- Main Window Management ---
 let mainWindow: BrowserWindow | null = null;
-let tray: Tray | null = null;
 
-const isDev = process.env.NODE_ENV === 'development';
-
-async function createWindow() {
-  console.log('[main.ts] Attempting to create window...');
-
+const createWindow = (): void => {
+  console.log('Creating main window...');
   mainWindow = new BrowserWindow({
     width: 1200,
     height: 800,
-    frame: false, // Remove standard OS window frame
-    titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'hidden', // 'hiddenInset' for macOS, 'hidden' for others
-    show: false, // Initially hide the window, show when ready or via tray
     webPreferences: {
-      preload: PathConfig.getPreloadPath(__dirname),
-      contextIsolation: true,
-      nodeIntegration: false,
+      preload: path.join(__dirname, '../preload/preload.js'), // Corrected path
+      nodeIntegration: false, // Disable nodeIntegration for security
+      contextIsolation: true, // Enable contextIsolation for security
+      devTools: IS_DEVELOPMENT, // Enable DevTools only in development
     },
-    backgroundColor: '#181818', // Dark theme color
+    show: false, // Don't show the window until it's ready
   });
 
-  // Show window when it's ready to prevent flash of unstyled content
-  mainWindow.once('ready-to-show', () => {
-    if (mainWindow) {
-      mainWindow.show();
+  // Determine the URL to load
+  let loadUrl: string;
+  console.log(`[Main Process Env Check] NODE_ENV: '${process.env.NODE_ENV}', IS_DEVELOPMENT: ${IS_DEVELOPMENT}`);
+  console.log(`[Main Process Env Check] WEBPACK_DEV_SERVER_URL: '${process.env.WEBPACK_DEV_SERVER_URL}'`);
+
+  if (IS_DEVELOPMENT && process.env.WEBPACK_DEV_SERVER_URL) {
+    loadUrl = process.env.WEBPACK_DEV_SERVER_URL;
+    console.log(`Attempting to load URL from Webpack Dev Server: ${loadUrl}`);
+  } else {
+    loadUrl = `file://${path.join(__dirname, '../renderer/index.html')}`;
+    console.log(`Attempting to load URL from file: ${loadUrl}`);
+    if (IS_DEVELOPMENT) {
+      console.warn(`WARNING: IS_DEVELOPMENT is true, but WEBPACK_DEV_SERVER_URL was not found or is empty. URL will be loaded from file system.`);
+    } else {
+      console.info(`INFO: IS_DEVELOPMENT is false. URL will be loaded from file system. NODE_ENV: '${process.env.NODE_ENV}'`);
     }
-  });
-
-  // console.log('[main.ts] MainWindow object created.');
-
-  // Attempt to open DevTools immediately, before any URL loading
-  if (mainWindow && !mainWindow.webContents.isDestroyed() && !mainWindow.webContents.isDevToolsOpened() && isDev) {
-    // console.log('[main.ts] Attempting to open DevTools BEFORE URL load...');
-    mainWindow.webContents.openDevTools({ mode: 'detach' });
   }
 
-  mainWindow.webContents.on('did-fail-load', (event, errorCode, errorDescription, validatedURL) => {
-    // console.error(`[main.ts] Failed to load URL: ${validatedURL}. Error ${errorCode}: ${errorDescription}`);
-    const errorHtml = `data:text/html;charset=utf-8,${encodeURIComponent(`
-      <html>
-        <body style="font-family: sans-serif; padding: 20px; background-color: #FFCCCC;">
-          <h1>Error Loading Page</h1>
-          <p>Could not load content for: <strong>${validatedURL}</strong></p>
-          <p>Error: ${errorDescription} (Code: ${errorCode})</p>
-        </body>
-      </html>
-    `)}`;
-    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.loadURL(errorHtml);
-  });
-  
-  mainWindow.webContents.on('did-finish-load', () => {
-    // console.log('[main.ts] WebContents finished loading content.');
-    // Ensure DevTools are open if they weren't already
-    if (mainWindow && !mainWindow.webContents.isDestroyed() && !mainWindow.webContents.isDevToolsOpened() && isDev) {
-      // console.log('[main.ts] Attempting to open DevTools AFTER did-finish-load (if not already open)...');
-      mainWindow.webContents.openDevTools({ mode: 'detach' });
-    }
+  mainWindow.loadURL(loadUrl).then(() => {
+    console.log('Main window URL loaded successfully.');
+  }).catch(err => {
+    console.error('Failed to load main window URL:', err);
   });
 
-  mainWindow.webContents.on('devtools-opened', () => {
-    // console.log('[main.ts] DevTools confirmed opened.'); // EPIPE Hunt
+  // Open DevTools automatically if in development
+  if (IS_DEVELOPMENT) {
+    mainWindow.webContents.openDevTools({ mode: 'undocked' });
+    console.log('DevTools opened for main window.');
+  }
+
+  mainWindow.once('ready-to-show', () => {
+    mainWindow?.show();
+    console.log('Main window is ready to show and now visible.');
   });
 
   mainWindow.on('closed', () => {
+    console.log('Main window closed.');
     mainWindow = null;
-    app.quit(); // Ensure app quits when main window is closed
   });
 
-  if (mainWindow) {
-    // console.log('[main.ts] Clearing Electron session cache...'); // EPIPE Hunt
-    await mainWindow.webContents.session.clearCache();
-    // console.log('[main.ts] Electron session cache cleared.'); // EPIPE Hunt
-  }
+  // Security: Handle new window requests
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    console.log(`Window open handler: Denying request for URL: ${url}`);
+    // shell.openExternal(url); // Uncomment to open external links in default browser
+    return { action: 'deny' }; // Deny new window creation for now
+  });
 
-  // console.log(`[main.ts] NODE_ENV: ${process.env.NODE_ENV}, WEBPACK_DEV_SERVER_URL: ${WEBPACK_DEV_SERVER_URL}`); // Commented out to prevent EPIPE error
+  console.log('Main window setup complete.');
+};
 
-  if (isDev) {
-    console.log('[main.ts] In development mode.');
-
-    let targetUrl = '';
-    if (typeof WEBPACK_DEV_SERVER_URL === 'string' && WEBPACK_DEV_SERVER_URL.trim() !== '') {
-      targetUrl = WEBPACK_DEV_SERVER_URL;
-      console.log(`[main.ts] Using WEBPACK_DEV_SERVER_URL: ${targetUrl}`);
-    } else {
-      targetUrl = `http://localhost:8080`; // Fallback to development server port
-      console.warn(`[main.ts] WEBPACK_DEV_SERVER_URL not defined or empty. Falling back to: ${targetUrl}`);
-    }
-    
-    // Append a timestamp to try and bypass caching issues if any
-    targetUrl += (targetUrl.includes('?') ? '&t=' : '?t=') + Date.now();
-
-    // The onBeforeRequest logging can be verbose, keep if needed for deep debugging.
-    // mainWindow.webContents.session.webRequest.onBeforeRequest({ urls: ['*://*/*'] }, 
-    //   (details: { url: string }, callback: (response: { cancel?: boolean; redirectURL?: string }) => void) => {
-    //     fs.appendFileSync(logFilePath, `[main.ts] Request: ${details.url}\n`);
-    //     callback({});
-    //   }
-    // );
-    
-    console.log(`[main.ts] Attempting to load URL: ${targetUrl}`);
-    fs.appendFileSync(logFilePath, `[main.ts] Loading URL: ${targetUrl}\n`);
-    
-    try {
-      await mainWindow.loadURL(targetUrl);
-      console.log(`[main.ts] Successfully loaded URL: ${targetUrl}`);
-      fs.appendFileSync(logFilePath, `[main.ts] Successfully loaded dev URL: ${targetUrl}\n`);
-    } catch (err: unknown) {
-      const errorMessage = err instanceof Error ? err.message : String(err);
-      console.error(`[main.ts] Error loading dev URL (${targetUrl}): ${errorMessage}`);
-      fs.appendFileSync(logFilePath, `[main.ts] Error loading dev URL (${targetUrl}): ${errorMessage}\n`);
-      // Fallback to prod path if dev fails
-      try {
-        const prodPath = PathConfig.getProdIndexPath(__dirname);
-        console.log(`[main.ts] Attempting to load fallback production path: ${prodPath}`);
-        await mainWindow.loadFile(prodPath);
-        console.log(`[main.ts] Successfully loaded fallback production path: ${prodPath}`);
-      } catch (fallbackErr: unknown) {
-        const fallbackErrorMessage = fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr);
-        console.error(`[main.ts] Error loading fallback production path: ${fallbackErrorMessage}`);
-        fs.appendFileSync(logFilePath, `[main.ts] Error loading fallback production path: ${fallbackErrorMessage}\n`);
-        // If fallback also fails, load an error page
-        const errorHtml = `data:text/html;charset=utf-8,${encodeURIComponent(`
-          <html>
-            <body style="font-family: sans-serif; padding: 20px; background-color: #FFCCCC;">
-              <h1>Error Loading Page</h1>
-              <p>Could not load application content. Development server may not be running or production files may be missing.</p>
-              <p>Attempted URL: <strong>${targetUrl}</strong></p>
-              <p>Error: ${errorMessage}</p>
-            </body>
-          </html>
-        `)}`;
-        if (mainWindow && !mainWindow.isDestroyed()) mainWindow.loadURL(errorHtml);
-      }
-    }
-    
-    // Open DevTools in development mode if not already opened
-    if (mainWindow && !mainWindow.webContents.isDestroyed() && !mainWindow.webContents.isDevToolsOpened()) {
-        mainWindow.webContents.openDevTools({ mode: 'detach' });
-    }
-  } else {
-    const prodPath = PathConfig.getProdIndexPath(__dirname);
-    // console.log(`[main.ts] Loading PROD file: ${prodPath}`);
-    await mainWindow.loadFile(prodPath);
-  }
-
-  ipcMain.on('ping', () => {/* console.log('[main.ts] Main process received ping') */});
-}
-
-function createTray() {
-  const iconPath = PathConfig.getIconPath(isDev, app.getAppPath(), __dirname);
-  
-  // console.log(`[main.ts] Attempting to load tray icon from: ${iconPath}`);
-
-  try {
-    const image = nativeImage.createFromPath(iconPath);
-    if (image.isEmpty()) {
-      // console.error(`[main.ts] Failed to load tray icon at ${iconPath}. Image is empty.`);
-      tray = new Tray(nativeImage.createEmpty());
-    } else {
-      // console.log(`[main.ts] Tray icon loaded from ${iconPath}`);
-      tray = new Tray(image);
-    }
-  } catch (error) {
-    // console.error(`[main.ts] Error creating tray icon from path ${iconPath}:`, error);
-    tray = new Tray(nativeImage.createEmpty());
-  }
-
-  const contextMenu = Menu.buildFromTemplate([
+// --- Application Menu ---
+const createMenu = () => {
+  console.log('Creating application menu...');
+  const template: Electron.MenuItemConstructorOptions[] = [
+    ...(IS_MAC ? [{
+      label: app.name,
+      submenu: [
+        { role: 'about' },
+        { type: 'separator' },
+        { role: 'services' },
+        { type: 'separator' },
+        { role: 'hide' },
+        { role: 'hideOthers' },
+        { role: 'unhide' },
+        { type: 'separator' },
+        { role: 'quit' }
+      ]
+    } as Electron.MenuItemConstructorOptions] : []),
     {
-      label: 'Preferences...',
-      click: () => {
-        // console.log('[main.ts] Preferences clicked (not implemented yet)');
-        mainWindow?.show();
-      },
-    },
-    {
-      label: 'Show/Hide App',
-      click: () => {
-        if (mainWindow) {
-          if (mainWindow.isVisible() && mainWindow.isFocused()) {
-            mainWindow.hide();
-          } else {
-            mainWindow.show();
-            mainWindow.focus();
+      label: 'File',
+      submenu: [
+        IS_MAC ? { role: 'close' } : { role: 'quit' },
+        {
+          label: 'Open DevTools',
+          accelerator: 'CmdOrCtrl+Shift+I',
+          click: () => {
+            mainWindow?.webContents.openDevTools();
+          }
+        },
+        {
+          label: 'Reload',
+          accelerator: 'CmdOrCtrl+R',
+          click: () => {
+            mainWindow?.webContents.reload();
+          }
+        },
+        {
+          label: 'Force Reload (ignore cache)',
+          accelerator: 'CmdOrCtrl+Shift+R',
+          click: () => {
+            mainWindow?.webContents.reloadIgnoringCache();
+          }
+        },
+        {
+          label: 'Open Log File',
+          click: () => {
+            shell.openPath(LOG_FILE_PATH).catch(err => {
+              console.error('Failed to open log file:', err);
+              dialog.showErrorBox('Error Opening Log', `Could not open log file at ${LOG_FILE_PATH}. Error: ${err.message}`);
+            });
+          }
+        },
+        {
+          label: 'Open User Data Directory',
+          click: () => {
+            const userDataPath = app.getPath('userData');
+            shell.openPath(userDataPath).catch(err => {
+              console.error('Failed to open user data directory:', err);
+              dialog.showErrorBox('Error Opening Directory', `Could not open ${userDataPath}. Error: ${err.message}`);
+            });
+          }
+        },
+        {
+          label: 'Clear User Data (Requires Restart)',
+          click: async () => {
+            const choice = dialog.showMessageBoxSync(mainWindow!, {
+              type: 'warning',
+              buttons: ['Cancel', 'Clear Data'],
+              defaultId: 0,
+              title: 'Confirm Clear User Data',
+              message: 'Are you sure you want to clear all user data? This includes settings, libraries, and logs. The application will quit after clearing.',
+              detail: 'This action cannot be undone.'
+            });
+            if (choice === 1) {
+              try {
+                const userDataPath = app.getPath('userData');
+                console.log(`Clearing user data at: ${userDataPath}`);
+                // Be very careful with rmSync. Ensure it's the correct path.
+                // Consider moving to trash instead of deleting permanently for safety.
+                // fs.rmSync(userDataPath, { recursive: true, force: true });
+                // For now, let's just log and simulate
+                console.log('Simulated clearing of user data. To actually clear, uncomment fs.rmSync.');
+                dialog.showMessageBoxSync(mainWindow!, {
+                  type: 'info',
+                  title: 'User Data Cleared (Simulated)',
+                  message: 'User data has been (simulated) cleared. The application will now quit.',
+                });
+                app.quit();
+              } catch (err: any) {
+                console.error('Failed to clear user data:', err);
+                dialog.showErrorBox('Error Clearing Data', `Failed to clear user data. Error: ${err.message}`);
+              }
+            }
           }
         }
-      },
+      ]
     },
-    { type: 'separator' },
-    {
-      label: 'Quit AIOPRESENTER',
-      click: () => {
-        app.quit();
-      },
-    },
-  ]);
+    // Add other menus like Edit, View, Window, Help as needed
+  ];
 
-  tray.setToolTip('AIOPRESENTER');
-  tray.setContextMenu(contextMenu);
+  const menu = Menu.buildFromTemplate(template);
+  Menu.setApplicationMenu(menu);
+  console.log('Application menu created and set.');
+};
 
-  if (process.platform === 'darwin') {
-    tray.on('click', () => {
-      if (mainWindow) {
-        if (mainWindow.isVisible()) {
-          mainWindow.hide(); 
-        } else {
-          mainWindow.show();
-          mainWindow.focus();
-        }
-      }
-    });
-  }
+// --- IPC Handlers ---
+const setupIPCListeners = () => {
+  console.log('Setting up IPC listeners...');
 
-  // console.log('[main.ts] Tray icon created.');
-}
-
-app.whenReady().then(async () => {
-  console.log('[main.ts] app.whenReady().then() --- BLOCK ENTERED ---');
-
-  // Initialize IPC handlers FIRST
-  let initError: any = null; // Changed to 'any' to store potential error object
-  (ipcMain as any).__MAIN_TS_MARKER__ = 'SetDirectlyInMainTS_IPC_Instance';
-  console.log('[main.ts] Marked ipcMain instance with __MAIN_TS_MARKER__:', (ipcMain as any).__MAIN_TS_MARKER__);
-
-  const sendMainDebug = (source: string, message: string, data?: any) => {
-    console.log(`[main.ts DEBUG] ${source}: ${message}`, data || '');
-    // mainWindow might be null here if called before createWindow, so check it
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send(StorageChannel.MAIN_PROCESS_DEBUG_MESSAGE, {
-        source,
-        log: message,
-        ...(data || {})
-      });
-    }
-  };
-
-  sendMainDebug('initial_state', 'Initial ipcMain event names (before any handler registration).', { eventNames: ipcMain.eventNames() });
-
-  // Call initializeStorageIpcHandlers (and other IPC initializations like setupInputHandlers if they exist)
-  try {
-    // Note: mainWindow will be null here, storageHandlers is designed to handle this for debug logs.
-    initializeStorageIpcHandlers(ipcMain, mainWindow, StorageService);
-    sendMainDebug('after_storage_handlers_call', 'SUCCESS: initializeStorageIpcHandlers completed. Event names now:', { eventNames: ipcMain.eventNames() });
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    sendMainDebug('storage_handlers_call_error', 'ERROR during initializeStorageIpcHandlers call.', { error: errorMessage, eventNames: ipcMain.eventNames() });
-    initError = error; // Keep for final summary
-  }
-
-  // TODO: Consider moving setupInputHandlers here as well if it exists and follows a similar pattern
-
-  sendMainDebug('final_ipc_state_before_createWindow', 'Final ipcMain event names after initial handler setup, before createWindow.', { eventNames: ipcMain.eventNames(), initializationError: initError ? (initError instanceof Error ? initError.message : String(initError)) : null });
-
-  // Now create the window and tray
-  // console.log('[main.ts] App is ready, calling createWindow and createTray...');
-  await createWindow();
-  createTray();
-  
-  // The rest of the debug logging and specific test handlers can remain or be adjusted as needed
-  // For instance, sendMainDebug can now use the fully initialized mainWindow if called from here onwards.
-
-
-  // console.log('[main.ts] IPC handlers initialized.');
-
-  app.on('activate', async () => {
-    // On macOS it's common to re-create a window in the app when the
-    // dock icon is clicked and there are no other windows open.
-    if (BrowserWindow.getAllWindows().length === 0) {
-      await createWindow();
-    }
-    if (mainWindow && !mainWindow.isVisible()) {
-      mainWindow.show();
-      mainWindow.focus();
+  ipcMain.handle(StorageChannel.SAVE_CUE_FILE, async (event, libraryName: string, cueName: string, cueData: Cue) => {
+    console.log(`IPC Event: ${StorageChannel.SAVE_CUE_FILE} received for library '${libraryName}', cue '${cueName}'`);
+    try {
+      const result = await storageService.saveCueFile(libraryName, cueName, cueData);
+      console.log(`IPC Event: ${StorageChannel.SAVE_CUE_FILE} - Save result:`, result);
+      return result;
+    } catch (error: unknown) {
+      console.error(`IPC Event: ${StorageChannel.SAVE_CUE_FILE} - Error saving cue file:`, error);
+      return { success: false, error: (error instanceof Error ? error.message : String(error)) || 'Unknown error during saveCueFile' };
     }
   });
-}); // This closes the app.whenReady().then(() => { ... })
 
-app.on('will-quit', () => {
-  if (process.env.NODE_ENV === 'development') {
-    // console.log('[main.ts] App is quitting in DEV mode. Attempting to kill port 9871...');
-    exec('kill-port 9871', (error, stdout, stderr) => {
-      if (error) {
-        // console.error(`[main.ts] Error killing port 9871: ${error.message}`);
-        return;
+  const expectedChannel = 'storage:list-user-libraries';
+  console.log(`[IPC_SETUP_DEBUG] Registering handler for channel: "${expectedChannel}" (enum resolves to: "${StorageChannel.LIST_USER_LIBRARIES}")`);
+  ipcMain.handle(expectedChannel, async (): Promise<Library[]> => {
+    console.log(`IPC Event: "${expectedChannel}" received.`);
+    try {
+      const libraryFolderNames = await storageService.listUserLibraryFolders();
+      console.log(`IPC Event: "${expectedChannel}" - Found folder names:`, libraryFolderNames);
+
+      const libraries: Library[] = [];
+      for (const folderName of libraryFolderNames) {
+        const libraryPath = path.join(storageService.getPresentationLibraryPath(), folderName);
+        const cues = await storageService.getLibraryCues(folderName);
+        libraries.push({
+          id: folderName, // Use folderName as id
+          name: folderName,
+          path: libraryPath,
+          cues: cues,
+        });
       }
-      if (stderr) {
-        // console.warn(`[main.ts] Stderr while killing port 9871: ${stderr}`);
-      }
-      // console.log(`[main.ts] Kill port 9871 result: ${stdout}`);
-    });
-  } else {
-    // console.log('[main.ts] App is quitting in non-DEV mode.');
-  }
+
+      console.log(`IPC Event: ${StorageChannel.LIST_USER_LIBRARIES} - Constructed ${libraries.length} Library objects.`);
+      return libraries;
+    } catch (error: unknown) {
+      console.error(`IPC Event: ${StorageChannel.LIST_USER_LIBRARIES} - Error listing libraries or fetching details:`, error);
+      return []; // Return empty array on error
+    }
+  });
+
+  ipcMain.handle(StorageChannel.CREATE_USER_LIBRARY, async (event, libraryName: string) => {
+    console.log(`IPC Event: ${StorageChannel.CREATE_USER_LIBRARY} received for library '${libraryName}'.`);
+    try {
+      const result = await storageService.createUserLibrary(libraryName);
+      console.log(`IPC Event: ${StorageChannel.CREATE_USER_LIBRARY} - Creation result:`, result);
+      return result;
+    } catch (error: unknown) {
+      console.error(`IPC Event: ${StorageChannel.CREATE_USER_LIBRARY} - Error creating library:`, error);
+      return { success: false, error: (error instanceof Error ? error.message : String(error)) || 'Unknown error during createUserLibrary' };
+    }
+  });
+
+  ipcMain.handle(StorageChannel.GET_STORAGE_PATHS, () => {
+    console.log(`IPC Event: ${StorageChannel.GET_STORAGE_PATHS} received.`);
+    try {
+      const paths = {
+        presentationLibraryPath: storageService.getPresentationLibraryPath(),
+        defaultUserLibraryPath: storageService.getDefaultUserLibraryPath(),
+        mediaLibraryPath: storageService.getMediaLibraryPath(),
+        userProjectsRootPath: storageService.getUserProjectsRootPath(),
+        documentsBasePath: storageService.getGlobalLibrariesRoot(),
+        globalLibrariesRootPath: storageService.getGlobalLibrariesRoot(),
+      };
+      return { success: true, data: paths };
+    } catch (err) {
+      console.error(`Error in ${StorageChannel.GET_STORAGE_PATHS} handler:`, err);
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      return { success: false, error: `Failed to get storage paths: ${errorMessage}` };
+    }
+  });
+
+  // Listener for debug messages from renderer
+  ipcMain.on(StorageChannel.MAIN_PROCESS_DEBUG_MESSAGE, (event, message: string) => {
+    // console.log(`[FROM RENDERER DEBUG]: ${message}`); // Already logged by DebugIPC
+    // This is mostly for DebugIPC to receive and forward if needed, or for direct main process logging
+  });
+
+  console.log('IPC listeners setup complete.');
+};
+
+// --- Application Lifecycle Events ---
+app.whenReady().then(() => {
+  console.log('App is ready. Initializing application components...');
+  createWindow();
+  createMenu();
+  setupIPCListeners();
+
+  // Watch for library changes and notify renderer
+  // Library change notifications are handled internally by StorageService via chokidar,
+  // which directly sends IPC messages (StorageChannel.LIBRARIES_DID_CHANGE).
+  // No need for an additional event listener on storageService here in main.ts.
+
+  app.on('activate', () => {
+    console.log('App activated.');
+    if (BrowserWindow.getAllWindows().length === 0) {
+      console.log('No windows open, creating new main window.');
+      createWindow();
+    }
+  });
+  console.log('Application components initialized.');
+}).catch(error => {
+  console.error('Error during app.whenReady:', error);
 });
 
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') {
+  console.log('All windows closed.');
+  if (!IS_MAC) {
+    console.log('Not on macOS, quitting application.');
     app.quit();
   }
 });
 
-// console.log('[main.ts] Main process initialization complete.');
+app.on('will-quit', () => {
+  console.log('Application will quit.');
+  // Perform any cleanup here
+});
+
+// --- Development Specific ---
+if (IS_DEVELOPMENT) {
+  // Add any development-specific logic here
+  console.log('Running in development mode.');
+
+  // Example: Auto-open DevTools for any new BrowserWindow (useful for popups if any)
+  /*
+  app.on('browser-window-created', (event, window) => {
+    if (!window.webContents.isDevToolsOpened()) {
+      window.webContents.openDevTools();
+    }
+  });
+  */
+}
+
+console.log('Main process script execution finished initial setup.');

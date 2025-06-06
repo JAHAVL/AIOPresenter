@@ -24,6 +24,8 @@ import { useDataSync } from '../hooks/useDataSync';
 import { useCuelistManager } from '../hooks/useCuelistManager';
 import { usePanelManager, type PanelConfig as HookPanelConfig, type PanelState as HookPanelState } from '../hooks/usePanelManager';
 import { useAddItemModals } from '../hooks/useAddItemModals'; // Import the new hook
+import DraggableResizablePanel from '../components/MainComponents/DraggableResizablePanel'; // Updated import path
+// import { useTheme } from '../../../../contexts/ThemeContext';
 // import { useModal } from '../hooks/useModal'; // This was incorrect, useInputModal is for generic modals
 // import { usePanelDnD } from '../hooks/usePanelDnD';
 // import { usePanelSnapLines } from '../hooks/usePanelSnapLines';
@@ -51,7 +53,13 @@ const PresentationWidget: React.FC<PresentationWidgetProps> = ({ themeColors }) 
   // Core Data States (excluding those dependent on seed data defined later)
   const { uniqueLibraries, isLoading: librariesLoading, error: librariesError, fetchUserLibraries } = useLibraryManager();
   // Data Sync (storagePaths and IPC listeners for data changes)
-  const { storagePaths } = useDataSync({ fetchUserLibraries });
+  const { storagePaths, lastRefreshTimestamp, refreshLibraries } = useDataSync({ fetchUserLibraries });
+  
+  // Effect to refresh libraries when lastRefreshTimestamp changes
+  useEffect(() => {
+    console.log(`[PresentationWidget] Detected refresh timestamp change: ${lastRefreshTimestamp}. Refreshing libraries...`);
+    fetchUserLibraries();
+  }, [lastRefreshTimestamp, fetchUserLibraries]);
   const {
     cuelists, 
     selectedItemId, 
@@ -516,26 +524,8 @@ const PresentationWidget: React.FC<PresentationWidgetProps> = ({ themeColors }) 
     overflow: 'hidden', // Ensures RND components are contained
   };
 
-  const rndItemStyleDefault: React.CSSProperties = {
-    border: `1px solid ${themeColors.panelBorder}`,
-    borderRadius: '8px',
-    backgroundColor: themeColors.panelBackground,
-    overflow: 'hidden',
-    color: themeColors.textColor,
-  };
-
-  const gridItemContentStyle: React.CSSProperties = {
-    width: '100%',
-    height: '100%',
-    overflow: 'auto',
-    padding: '10px',
-    boxSizing: 'border-box',
-    color: themeColors.textColor,
-    display: 'flex',
-    flexDirection: 'column',
-  };
-
-  // Removed toggleTheme function and buttonStyle as they are lifted up
+    // Removed toggleTheme function and buttonStyle as they are lifted up
+  // rndItemStyleDefault and gridItemContentStyle have been moved to DraggableResizablePanel.tsx
 
   return (
     <div style={widgetWrapperStyle}>
@@ -587,6 +577,46 @@ const PresentationWidget: React.FC<PresentationWidgetProps> = ({ themeColors }) 
         onShowClick={handleShowViewClick} 
         onEditClick={handleEditViewClick} 
       />
+
+      {/* Library Display Section */}
+      <div style={{ position: 'absolute', top: '50px', left: '10px', zIndex: 9999, background: 'rgba(0,0,0,0.75)', color: 'white', padding: '10px', borderRadius: '5px', fontSize: '12px', fontFamily: 'Arial, sans-serif', boxShadow: '0 2px 10px rgba(0,0,0,0.5)' }}>
+        <h4 style={{ marginTop: '0', marginBottom: '8px', borderBottom: '1px solid #555', paddingBottom: '5px' }}>Libraries</h4>
+        {librariesLoading && <p>Loading libraries...</p>}
+        {librariesError && <p style={{ color: '#ffdddd' }}>Error: {librariesError.message}</p>}
+        {!librariesLoading && !librariesError && (
+          <ul style={{ listStyle: 'none', paddingLeft: '0', margin: '0', maxHeight: '150px', overflowY: 'auto' }}>
+            {uniqueLibraries.length > 0 ? (
+              uniqueLibraries.map(lib => (
+                <li key={lib.id} style={{ marginBottom: '3px' }}>{lib.name} (Cues: {lib.cues?.length || 0})</li>
+              ))
+            ) : (
+              <li>No libraries found.</li>
+            )}
+          </ul>
+        )}
+        <button 
+          type="button" 
+          onClick={refreshLibraries} 
+          disabled={librariesLoading} 
+          style={{ 
+            marginTop: '10px', 
+            padding: '5px 10px', 
+            fontSize: '11px', 
+            backgroundColor: '#007bff',
+            color: 'white',
+            border: 'none',
+            borderRadius: '3px',
+            cursor: 'pointer'
+          }}
+          onMouseOver={(e) => (e.currentTarget.style.backgroundColor = '#0056b3')}
+          onMouseOut={(e) => (e.currentTarget.style.backgroundColor = '#007bff')}
+        >
+          Refresh Libraries
+        </button>
+        <div style={{ fontSize: '9px', color: '#aaa', marginTop: '5px' }}>
+          Last updated: {new Date(lastRefreshTimestamp).toLocaleTimeString()}
+        </div>
+      </div>
       {currentViewMode === 'slideEditor' ? (
         <SlideEditingView
           themeColors={themeColors}
@@ -597,34 +627,20 @@ const PresentationWidget: React.FC<PresentationWidgetProps> = ({ themeColors }) 
         />
       ) : (
         <div ref={gridContainerRef} style={gridContainerStyle}>
-          {managedPanels.filter(p => p.visible).map(panel => (
-            <Rnd
+          {managedPanels.map(panel => (
+            <DraggableResizablePanel
               key={panel.id}
-              data-panel-id={panel.id}
-              style={{ ...rndItemStyleDefault, zIndex: panel.zIndex }}
-              size={{ width: panel.width, height: panel.height }}
-              position={{ x: panel.x, y: panel.y }}
-              minWidth={panel.minWidth}
-              minHeight={panel.minHeight}
-              bounds="parent"
-              onDragStart={(e, data) => panelDragStart(panel.id)} // Pass only panelId if hook expects that
-              onDrag={(e, data) => panelDrag(panel.id, data)} // Pass panelId and data
-              onResizeStart={(e, dir, refToElement) => panelResizeStart(panel.id)} // Pass panelId
-              onDragStop={(e, d) => panelDragStop(panel.id, d)}
-              onResize={(e, direction, refToElement, delta, position) => panelResize(panel.id, direction, refToElement, delta, position)} // Pass all args
-              onResizeStop={(e, dir, ref, delta, pos) =>
-                panelResizeStop(panel.id, e, dir, ref, delta, pos)
-              }
-              enableResizing={{
-                top: true, right: true, bottom: true, left: true,
-                topRight: true, bottomRight: true, bottomLeft: true, topLeft: true,
-              }}
-              // disableDragging={!panel.isDraggable} // Example if hook's PanelState had isDraggable
+              panel={panel} // panel object from usePanelManager, should be PanelState type
+              themeColors={themeColors}
+              onDragStart={(e, data, id) => panelDragStart(id)} 
+              onDrag={(e, data, id) => panelDrag(id, data)} 
+              onDragStop={(e, data, id) => panelDragStop(id, data)}
+              onResizeStart={(e, dir, ref, id) => panelResizeStart(id)}
+              onResize={(e, dir, ref, delta, position, id) => panelResize(id, dir, ref, delta, position)}
+              onResizeStop={(e, dir, ref, delta, position, id) => panelResizeStop(id, e, dir, ref, delta, position)}
             >
-              <div style={gridItemContentStyle}>
-                {renderPanelComponent(panel as HookPanelState)} {/* Cast to HookPanelState if renderPanelComponent expects it */}
-              </div>
-            </Rnd>
+              {renderPanelComponent(panel as HookPanelState)} {/* Ensure HookPanelState is compatible with PanelState or update renderPanelComponent */}
+            </DraggableResizablePanel>
           ))}
           {/* Visual Snap Lines */}
           {managedVisualSnapLines.v.map((lineX, index) => (

@@ -69,12 +69,12 @@ export const initialLibraries: Library[] = [
     id: nanoid(),
     name: 'Default Mock Library',
     path: '/mock/libraries/default',
-    cuelists: [{ id: nanoid(), name: 'Default Cuelist', cues: [initialCues[0], initialCues[1]] }],
+    cuelists: [{ id: nanoid(), name: 'Default Cuelist', type: 'cuelist', cues: [initialCues[0], initialCues[1]] }],
   },
   {
     id: nanoid(),
     name: 'Sermon Archives Mock',
     path: '/mock/libraries/sermons',
-    cuelists: [{ id: nanoid(), name: 'Sermon Cuelist 1', cues: [initialCues[2]] }],
+    cuelists: [{ id: nanoid(), name: 'Sermon Cuelist 1', type: 'cuelist', cues: [initialCues[2]] }],
   },
 ];

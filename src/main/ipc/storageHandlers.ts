@@ -116,7 +116,21 @@ export const initializeStorageIpcHandlers = (
     }
   });
   sendDebugLog(`[storageHandlers.ts DEBUG] SUCCESSFULLY called .handle() for '${StorageChannel.GET_STORAGE_PATHS}'.`);
-  sendDebugLog(`Event names in storageHandlers AFTER '${StorageChannel.LIST_USER_LIBRARIES}' registration: ${JSON.stringify(ipcMainInstance.eventNames())}`);
-  sendDebugLog('[storageHandlers.ts END OF FUNCTION] Final ipcMain event names after all handle calls: ' + JSON.stringify(ipcMainInstance.eventNames()));
+
+  // Handler for CREATE_PRESENTATION_FILE using ipcMain.handle
+  ipcMainInstance.handle(StorageChannel.CREATE_PRESENTATION_FILE, async (event, { libraryPath, baseName }: { libraryPath: string; baseName: string }) => {
+    sendDebugLog(`[storageHandlers.ts DEBUG] '${StorageChannel.CREATE_PRESENTATION_FILE}' (using .handle) INVOKED with libraryPath: ${libraryPath}, baseName: ${baseName}.`);
+    try {
+      const result = await storageService.createPresentationFile(libraryPath, baseName);
+      sendDebugLog(`[storageHandlers.ts DEBUG] Result from createPresentationFile for '${StorageChannel.CREATE_PRESENTATION_FILE}': ${JSON.stringify(result)}`);
+      return result; // This will be { success: boolean, filePath?: string, error?: string }
+    } catch (error: any) {
+      sendDebugLog(`[storageHandlers.ts DEBUG] Error in '${StorageChannel.CREATE_PRESENTATION_FILE}' handler: ${error.message}`);
+      return { success: false, error: error.message || 'An unknown error occurred while creating presentation file.' };
+    }
+  });
+  sendDebugLog(`[storageHandlers.ts DEBUG] SUCCESSFULLY called .handle() for '${StorageChannel.CREATE_PRESENTATION_FILE}'.`);
+
+  sendDebugLog(`Event names in storageHandlers AFTER all registrations: ${JSON.stringify(ipcMainInstance.eventNames())}`);
   sendDebugLog('Storage IPC handlers (SIMPLIFIED) initialization complete.');
 };

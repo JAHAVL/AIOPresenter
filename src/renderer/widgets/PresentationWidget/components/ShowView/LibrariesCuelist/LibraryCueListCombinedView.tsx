@@ -32,6 +32,7 @@ export interface LibraryCueListCombinedViewProps {
   allCues: Cue[];
   selectedCueId: string | null;
   onAddItemToSelectedList?: () => void; // New prop for the add button in SelectedItemContentView, made optional
+  onPresentationCreateAttempted?: (result: { success: boolean; filePath?: string; error?: string }) => void;
 }
 
 const LibraryCueListCombinedView: React.FC<LibraryCueListCombinedViewProps> = ({
@@ -57,7 +58,11 @@ const LibraryCueListCombinedView: React.FC<LibraryCueListCombinedViewProps> = ({
   selectedCueId,
   allCues,
   onAddItemToSelectedList = () => { console.warn('onAddItemToSelectedList not implemented or passed'); },
+  onPresentationCreateAttempted,
 }) => {
+  const selectedLibrary = selectedItemType === 'library' && selectedItemId 
+    ? libraries.find(lib => lib.id === selectedItemId)
+    : null;
   console.log('[LibraryCueListCombinedView] Rendering with two-panel layout...');
   console.log('[LibraryCueListCombinedView] Libraries prop:', libraries);
 
@@ -120,6 +125,8 @@ const LibraryCueListCombinedView: React.FC<LibraryCueListCombinedViewProps> = ({
           selectedCueId={selectedCueId}
           onSelectCue={onSelectCue}
           onAddItem={onAddItemToSelectedList} // Pass down the new handler
+          selectedLibraryPath={selectedLibrary ? selectedLibrary.path : undefined}
+          onPresentationCreateAttempted={onPresentationCreateAttempted}
         />
       </div>
     </div>

@@ -110,8 +110,11 @@ const createWindow = (): void => {
     console.error('Failed to load main window URL:', err);
   });
 
-  // Open DevTools automatically if in development
-  if (IS_DEVELOPMENT) {
+  // Check if --dev-tools flag was passed
+  const devToolsFlag = process.argv.includes('--dev-tools');
+  
+  // Open DevTools automatically if in development or if --dev-tools flag is passed
+  if (IS_DEVELOPMENT || devToolsFlag) {
     mainWindow.webContents.openDevTools({ mode: 'undocked' });
     console.log('DevTools opened for main window.');
   }
@@ -282,6 +285,48 @@ const setupIPCListeners = () => {
     } catch (error: unknown) {
       console.error(`IPC Event: ${StorageChannel.LIST_USER_LIBRARIES} - Error listing libraries or fetching details:`, error);
       return []; // Return empty array on error
+    }
+  });
+
+  ipcMain.handle(StorageChannel.CREATE_PRESENTATION_FILE, async (event, args: { libraryPath: string; baseName?: string }) => {
+    console.log(`IPC Event: ${StorageChannel.CREATE_PRESENTATION_FILE} received with args:`, args);
+    try {
+      const result = await storageService.createPresentationFile(args.libraryPath, args.baseName);
+      console.log(`IPC Event: ${StorageChannel.CREATE_PRESENTATION_FILE} - Create result:`, result);
+      return result;
+    } catch (error: unknown) {
+      console.error(`IPC Event: ${StorageChannel.CREATE_PRESENTATION_FILE} - Error creating presentation file:`, error);
+      return { success: false, error: (error instanceof Error ? error.message : String(error)) || 'Unknown error during createPresentationFile' };
+    }
+  });
+
+  ipcMain.handle(StorageChannel.LIST_PRESENTATION_FILES, async (_event, libraryPath: string) => {
+    console.log(`IPC Event: ${StorageChannel.LIST_PRESENTATION_FILES} received with libraryPath:`, libraryPath);
+    console.log(`IPC Event: ${StorageChannel.LIST_PRESENTATION_FILES} libraryPath type:`, typeof libraryPath);
+    
+    if (typeof libraryPath !== 'string') {
+      console.error(`IPC Event: ${StorageChannel.LIST_PRESENTATION_FILES} - libraryPath is not a string:`, libraryPath);
+      return { success: false, error: 'Library path must be a string' };
+    }
+    
+    try {
+      console.log(`IPC Event: ${StorageChannel.LIST_PRESENTATION_FILES} - Calling storageService.listPresentationFiles with:`, libraryPath);
+      const result = await storageService.listPresentationFiles(libraryPath);
+      console.log(`IPC Event: ${StorageChannel.LIST_PRESENTATION_FILES} - Result:`, result);
+      console.log(`IPC Event: ${StorageChannel.LIST_PRESENTATION_FILES} - Found ${result.files?.length || 0} presentation files`);
+      
+      // Convert the result format to match what the renderer expects
+      const response = { 
+        success: result.success, 
+        data: result.files, 
+        error: result.error 
+      };
+      
+      console.log(`IPC Event: ${StorageChannel.LIST_PRESENTATION_FILES} - Returning response:`, response);
+      return response;
+    } catch (error: unknown) {
+      console.error(`IPC Event: ${StorageChannel.LIST_PRESENTATION_FILES} - Error listing presentation files:`, error);
+      return { success: false, error: (error instanceof Error ? error.message : String(error)) || 'Unknown error during listPresentationFiles' };
     }
   });
 

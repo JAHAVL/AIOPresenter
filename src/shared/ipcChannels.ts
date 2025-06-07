@@ -11,6 +11,8 @@ export enum StorageChannel {
   LIBRARIES_DID_CHANGE = 'storage:libraries-did-change',
   RENAME_USER_LIBRARY = 'storage:rename-user-library',
   DELETE_USER_LIBRARY = 'storage:delete-user-library',
+  CREATE_PRESENTATION_FILE = 'storage:create-presentation-file',
+  LIST_PRESENTATION_FILES = 'storage:list-presentation-files',
   // Add other storage-related channels here
 }
 
@@ -161,4 +163,17 @@ export interface CueGroup {
   cue: Cue;
   slides: Slide[]; // Redundant with cue.slides but reinforces the data structure for SlidesView
   // cuelistId?: string; // Optional: if needed to trace back to the Cuelist
+}
+
+// Represents the content of an AIOPresentation file
+export interface AIOPresentationContent {
+  version: string;
+  slides: Slide[];
+  id?: string;
+  name?: string;
+  metadata?: {
+    createdAt?: string;
+    modifiedAt?: string;
+    [key: string]: any; // Additional metadata fields
+  };
 }

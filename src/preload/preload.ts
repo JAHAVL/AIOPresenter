@@ -1,7 +1,7 @@
 // src/preload/preload.ts
 console.log('<<<<< PRELOAD SCRIPT VERSION XXXXX - TOP OF FILE - JUNE 05 2025 12:08 PM >>>>>');
 import { contextBridge, ipcRenderer, IpcRendererEvent } from 'electron';
-import { StorageChannel, Library } from '../shared/ipcChannels';
+import { StorageChannel, Library, PresentationFile } from '../shared/ipcChannels';
 // import { MainProcessDebugPayload } from './types'; // Assuming types.ts or similar, commented out for now
 // import { MainChannel, FileChannel } from './constants'; // Assuming constants.ts or similar, commented out for now
 
@@ -121,6 +121,38 @@ const electronAPIExports = {
       })
       .catch(err => {
         console.error(`[preload.ts] deleteUserLibrary failed for '${libraryName}':`, err);
+        return { success: false, error: err.message };
+      });
+  },
+
+  // Create Presentation File
+  createPresentationFile: (libraryPath: string, baseName?: string): Promise<{ success: boolean; filePath?: string; error?: string }> => {
+    const channel = StorageChannel.CREATE_PRESENTATION_FILE;
+    const args = { libraryPath, baseName };
+    console.log(`[preload.ts] createPresentationFile: Attempting to invoke on channel '${channel}' with args:`, args);
+    return ipcRenderer.invoke(channel, args)
+      .then(result => {
+        console.log(`[preload.ts] createPresentationFile resolved successfully for libraryPath '${libraryPath}':`, result);
+        return result; // Should be { success: boolean; filePath?: string; error?: string }
+      })
+      .catch(err => {
+        console.error(`[preload.ts] createPresentationFile failed for libraryPath '${libraryPath}':`, err);
+        return { success: false, error: err.message };
+      });
+  },
+
+  // List Presentation Files in a Library
+  listPresentationFiles: (libraryPath: string): Promise<{ success: boolean; data?: PresentationFile[]; error?: string }> => {
+    const channel = StorageChannel.LIST_PRESENTATION_FILES;
+    console.log(`[preload.ts] listPresentationFiles: Attempting to invoke on channel '${channel}' with libraryPath:`, libraryPath);
+    // Pass libraryPath directly as a string, not wrapped in an object
+    return ipcRenderer.invoke(channel, libraryPath)
+      .then(result => {
+        console.log(`[preload.ts] listPresentationFiles resolved successfully for libraryPath '${libraryPath}':`, result);
+        return result; // Should be { success: boolean; data?: PresentationFile[]; error?: string }
+      })
+      .catch(err => {
+        console.error(`[preload.ts] listPresentationFiles failed for libraryPath '${libraryPath}':`, err);
         return { success: false, error: err.message };
       });
   },

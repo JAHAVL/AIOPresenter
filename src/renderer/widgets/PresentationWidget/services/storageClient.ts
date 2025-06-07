@@ -4,7 +4,7 @@
 const electronAPI = window.electronAPI;
 
 // Adjust the path if your build process places ipcChannels.ts elsewhere or if it remains .ts
-import { StorageChannel, Cue, Library } from '../../../../shared/ipcChannels';
+import { StorageChannel, Cue, Library, PresentationFile } from '../../../../shared/ipcChannels';
 
 // Local ElectronWindow interface and declaration removed.
 // Global type from preload.d.ts will be used for window.electronAPI.
@@ -69,7 +69,7 @@ export async function listUserLibraries(): Promise<IpcResponse<UserLibrary[]>> {
       const userLibs: UserLibrary[] = actualLibraries.map(lib => ({
         name: lib.name,
         path: lib.path,
-        cues: lib.cues || []
+        cues: [] // Initialize with empty cues array
       }));
       return { success: true, data: userLibs };
     } else if (responseFromPreload && typeof responseFromPreload.success === 'boolean') {
@@ -80,7 +80,7 @@ export async function listUserLibraries(): Promise<IpcResponse<UserLibrary[]>> {
         const userLibs: UserLibrary[] = ipcResponseFromPreload.data.map(lib => ({
           name: lib.name,
           path: lib.path,
-          cues: lib.cues || []
+          cues: [] // Initialize with empty cues array
         }));
         return { success: true, data: userLibs };
       } else {
@@ -114,6 +114,73 @@ export async function createUserLibrary(libraryName: string): Promise<IpcRespons
     return response;
   } catch (error) {
     console.error('IPC call to CREATE_USER_LIBRARY failed:', error);
+    return { success: false, error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+/**
+ * Lists all presentation files in a library.
+ * @param libraryPath The absolute path to the library folder to list presentations from.
+ */
+export async function listPresentationFiles(
+  libraryPath: string
+): Promise<IpcResponse<PresentationFile[]>> {
+  try {
+    console.log('[storageClient] Listing presentation files in library:', libraryPath);
+    
+    if (!window.electronAPI || !window.electronAPI.listPresentationFiles) {
+      console.error('[storageClient] window.electronAPI.listPresentationFiles is not available');
+      return { success: false, error: 'API not available' };
+    }
+    
+    // Call the IPC channel to list presentation files in the library
+    const response = await window.electronAPI.listPresentationFiles(libraryPath);
+    
+    if (!response.success) {
+      console.error('[storageClient] Error from listPresentationFiles IPC call:', response.error);
+      return { success: false, error: response.error || 'Failed to list presentation files' };
+    }
+    
+    if (!Array.isArray(response.data)) {
+      console.error('[storageClient] Unexpected response format from listPresentationFiles:', response);
+      return { success: false, error: 'Unexpected response format' };
+    }
+    
+    console.log(`[storageClient] Successfully listed ${response.data.length} presentation files in ${libraryPath}`);
+    return { success: true, data: response.data };
+  } catch (error) {
+    console.error('[storageClient] Error listing presentation files:', error);
+    return { success: false, error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+/**
+ * Creates a new .AIOPresentation file in the specified library.
+ * @param libraryPath The absolute path to the library folder where the file should be created.
+ * @param baseName The base name for the new presentation file (e.g., "New Presentation"). Defaults if not provided.
+ */
+export async function createPresentationFile(
+  libraryPath: string,
+  baseName?: string
+): Promise<IpcResponse<{ filePath?: string }>> {
+  try {
+    console.log(`[IPC CLIENT] Requesting creation of presentation file in library: ${libraryPath} with baseName: ${baseName || 'New Presentation'}`);
+    // The actual call to the preload-exposed function
+    const response: { success: boolean; filePath?: string; error?: string } = 
+      await window.electronAPI.createPresentationFile(libraryPath, baseName);
+    
+    console.log('[IPC CLIENT] Received create presentation file response:', response);
+    if (!response.success) {
+        console.error('Error creating presentation file:', response.error);
+    }
+    // Ensure the response shape matches IpcResponse, specifically for the 'data' field if success.
+    if (response.success) {
+      return { success: true, data: { filePath: response.filePath } };
+    }
+    return { success: false, error: response.error };
+
+  } catch (error) {
+    console.error('IPC call to createPresentationFile failed:', error);
     return { success: false, error: error instanceof Error ? error.message : String(error) };
   }
 }

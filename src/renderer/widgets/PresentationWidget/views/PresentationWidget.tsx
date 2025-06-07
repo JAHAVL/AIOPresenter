@@ -12,13 +12,15 @@ import { StorageChannel } from '@shared/ipcChannels';
 
 // Import child components
 import LibraryCueListCombinedView from '../components/ShowView/LibrariesCuelist/LibraryCueListCombinedView';
-import OutputWindow, { type OutputItem } from '../components/ShowView/OutputWindow/OutputWindow';
+import OutputWindow from '../components/ShowView/OutputWindow/OutputWindow';
+import type { OutputItem } from '../types/presentationSharedTypes';
 import SlidesView from '../components/ShowView/SlidesView/SlidesView';
 import PresentationControlsBar from '../components/PresentationControlsBar/PresentationControlsBar';
 import SlideEditingView from './SlideEditingView'; // Import the new view
 import InputModal from '../components/InputModal';
 import { useLibraryManager } from '../hooks/useLibraryManager';
 import { useCueSlideManager, type HandleEditingViewSlideSelectOptions } from '../hooks/useCueSlideManager';
+import { useLibraryContentManager } from '../hooks/useLibraryContentManager';
 import { useInputModal, type InputModalProps as HookInputModalProps } from '../hooks/useInputModal';
 import { useDataSync } from '../hooks/useDataSync';
 import { useCuelistManager } from '../hooks/useCuelistManager';
@@ -54,8 +56,31 @@ const PresentationWidget: React.FC<PresentationWidgetProps> = ({ themeColors }) 
 
   // Core Data States (excluding those dependent on seed data defined later)
   const { uniqueLibraries, isLoading: librariesLoading, error: librariesError, fetchUserLibraries } = useLibraryManager();
+  // Library content management
+  const { libraryContents, isLoading: isLoadingLibraryContents, fetchLibraryContents, createNewPresentation } = useLibraryContentManager();
   // Data Sync (storagePaths and IPC listeners for data changes)
   const { storagePaths, lastRefreshTimestamp, refreshLibraries } = useDataSync({ fetchUserLibraries });
+
+  const handleAddItemToLibrary = () => {
+    console.log('[PresentationWidget] Adding item to library, refreshing libraries...');
+    refreshLibraries();
+  };
+
+  const handlePresentationCreateFeedback = (result: { success: boolean; filePath?: string; error?: string }) => {
+    if (result.success && result.filePath) {
+      console.log(`[PresentationWidget] Successfully created presentation: ${result.filePath}`);
+      
+      // Refresh the library contents to show the new presentation immediately
+      if (selectedItemType === 'library' && selectedItemId) {
+        const selectedLibrary = uniqueLibraries.find(lib => lib.id === selectedItemId);
+        if (selectedLibrary) {
+          fetchLibraryContents(selectedLibrary.path);
+        }
+      }
+    } else {
+      console.error(`[PresentationWidget] Failed to create presentation: ${result.error || 'Unknown error'}`);
+    }
+  };
   
   const handleCreateNewLibrary = async () => {
     console.log('[PresentationWidget] Attempting to create new library...');
@@ -111,9 +136,14 @@ const PresentationWidget: React.FC<PresentationWidgetProps> = ({ themeColors }) 
   };
 
   const handleRenameSubmit = async (originalLibrary: Library, newNameFromInput: string) => {
-    if (!editingLibraryId || !originalLibrary) return;
+    console.log('[DEBUG] handleRenameSubmit called with:', { originalLibrary, newNameFromInput, editingLibraryId });
+    if (!editingLibraryId || !originalLibrary) {
+      console.log('[DEBUG] Early return: editingLibraryId or originalLibrary is falsy');
+      return;
+    }
 
     const newName = newNameFromInput.trim();
+    console.log('[DEBUG] Setting editingLibraryId to null');
     setEditingLibraryId(null); // Exit editing mode immediately
 
     if (!newName || newName === originalLibrary.name) {
@@ -124,8 +154,8 @@ const PresentationWidget: React.FC<PresentationWidgetProps> = ({ themeColors }) 
     console.log(`[PresentationWidget] Attempting to rename library '${originalLibrary.name}' to '${newName}'`);
     if (window.electronAPI && window.electronAPI.renameUserLibrary) {
       try {
-        console.log(`[PresentationWidget] PRE-IPC CALL: originalLibrary.name = "${originalLibrary.name}" (type: ${typeof originalLibrary.name}), newName = "${newName}" (type: ${typeof newName})`);
-      const result = await window.electronAPI.renameUserLibrary(originalLibrary.name, newName);
+        console.log(`[PresentationWidget] PRE-IPC CALL: originalLibrary.path = "${originalLibrary.path}" (type: ${typeof originalLibrary.path}), newName = "${newName}" (type: ${typeof newName})`);
+        const result = await window.electronAPI.renameUserLibrary(originalLibrary.path, newName);
         console.log('[PresentationWidget] renameUserLibrary result:', result);
         if (result.success) {
           console.log(`[PresentationWidget] Library renamed from '${result.oldPath}' to '${result.newPath}'`);
@@ -134,30 +164,18 @@ const PresentationWidget: React.FC<PresentationWidgetProps> = ({ themeColors }) 
           console.error('[PresentationWidget] Failed to rename library:', result.error);
           // Revert optimistic UI update or inform user
           setCurrentEditName(originalLibrary.name); // Revert name in case of error
-          openGenericModal({
-            title: 'Error Renaming Library',
-            message: `Could not rename library: ${result.error || 'Unknown error'}.`,
-            onSubmit: (_value: string) => {},
-          });
+          // Don't show modal for rename errors to avoid unwanted popups
         }
       } catch (error) {
         console.error('[PresentationWidget] Error calling renameUserLibrary:', error);
         const errorMessage = error instanceof Error ? error.message : String(error);
         setCurrentEditName(originalLibrary.name); // Revert name in case of error
-        openGenericModal({
-          title: 'Error',
-          message: `An unexpected error occurred: ${errorMessage}`,
-          onSubmit: (_value: string) => {},
-        });
+        // Don't show modal for rename errors to avoid unwanted popups
       }
     } else {
       console.error('[PresentationWidget] electronAPI.renameUserLibrary is not available.');
       setCurrentEditName(originalLibrary.name); // Revert name
-      openGenericModal({
-        title: 'Error',
-        message: 'Functionality to rename library is not available.',
-        onSubmit: (_value: string) => {},
-      });
+      // Don't show modal for API unavailability to avoid unwanted popups
     }
   };
 
@@ -471,8 +489,22 @@ const PresentationWidget: React.FC<PresentationWidgetProps> = ({ themeColors }) 
     openNewCuelistModal(selectedLibraryForNewCuelist.id);
   }, [uniqueLibraries, cuelists, selectedItemId, selectedItemType, openNewCuelistModal]);
 
-  // The handleSelectLibraryOrCuelist from useCuelistManager can be used directly by child components
-  // No specific wrapper like handleSelectLibraryOrCuelistFromCombinedView is needed if it only calls the hook's version.
+  // Create a wrapper function that extends handleSelectLibraryOrCuelist to also fetch library contents
+  const handleLibraryOrCuelistSelection = (id: string | null, type: 'library' | 'cuelist' | 'folder' | null) => {
+    // Call the original handler first
+    handleSelectLibraryOrCuelist(id, type);
+    
+    // If a library is selected, fetch its contents
+    if (type === 'library' && id) {
+      const selectedLibrary = uniqueLibraries.find(lib => lib.id === id);
+      if (selectedLibrary) {
+        console.log(`[PresentationWidget] Fetching contents for library: ${selectedLibrary.path}`);
+        fetchLibraryContents(selectedLibrary.path);
+      }
+    }
+  };
+  
+  // This function is already defined elsewhere in the component, so we'll remove our duplicate
 
 
 
@@ -557,7 +589,7 @@ const PresentationWidget: React.FC<PresentationWidgetProps> = ({ themeColors }) 
       case 'slides': {
         let cueNameForSlidesViewHeader = 'Slides'; 
         if (selectedCueId) {
-          const currentCue = allCuesAsCueGroups.find((cg: CueGroup) => cg.cue.id === selectedCueId)?.cue;
+          const currentCue = allCuesAsCueGroups.find((cg) => cg.cue.id === selectedCueId)?.cue;
           if (currentCue) {
             cueNameForSlidesViewHeader = currentCue.name;
           } else {
@@ -592,11 +624,24 @@ const PresentationWidget: React.FC<PresentationWidgetProps> = ({ themeColors }) 
           itemsForCueListDisplay = cuesForSelectedCuelist;
           cueListItemTypeDisplay = 'cue';
         } else if (selectedItemType === 'library') {
-          // When a library is selected, SelectedItemContentView might not display anything directly,
-          // as cuelists are handled by CuelistsSection. Or it could show library details if designed so.
-          // For now, pass empty and null to satisfy types if SelectedItemContentView only handles Cues/Presentations.
+          // When a library is selected, show presentation files in the library
+          const selectedLibrary = uniqueLibraries.find(lib => lib.id === selectedItemId);
+          console.log('[PresentationWidget] Selected library:', selectedLibrary);
+          console.log('[PresentationWidget] Current libraryContents from hook:', libraryContents);
+          
+          if (selectedLibrary) {
+            // Use our libraryContents from the hook
+            itemsForCueListDisplay = libraryContents;
+            console.log('[PresentationWidget] Setting itemsForCueListDisplay to libraryContents:', itemsForCueListDisplay);
+            cueListItemTypeDisplay = 'presentation';
+          } else {
+            console.log('[PresentationWidget] No selected library found, setting empty items');
+            itemsForCueListDisplay = [];
+            cueListItemTypeDisplay = null;
+          }
+        } else {
           itemsForCueListDisplay = [];
-          cueListItemTypeDisplay = null; 
+          cueListItemTypeDisplay = null;
         }
 
         return (
@@ -607,39 +652,128 @@ const PresentationWidget: React.FC<PresentationWidgetProps> = ({ themeColors }) 
             allCues={allCuesForHook} // All cues for potential display or operations
             selectedItemId={selectedItemId}
             selectedItemType={selectedItemType}
-            onSelectItem={handleSelectLibraryOrCuelist} // Use the hook's version directly
+            onSelectItem={handleLibraryOrCuelistSelection} // Use our enhanced wrapper function
             itemsForCueList={itemsForCueListDisplay} // Content for the right panel (SelectedItemContentView)
             cueListItemType={cueListItemTypeDisplay} // Type of items in the right panel
             onCreateNewLibrary={handleCreateNewLibrary} // This is handleAddNewUserLibrary from useLibraryManager
-            onRenameLibrarySubmit={(libraryId: string, newName: string) => {
-            console.log(`[PresentationWidget] onRenameLibrarySubmit adapter called. Library ID: ${libraryId}, New Name: '${newName}'`);
+            onRenameLibrarySubmit={async (libraryId: string, newName: string) => {
+              console.log('[DEBUG] onRenameLibrarySubmit called with:', { libraryId, newName });
               const libraryToRename = uniqueLibraries.find(lib => lib.id === libraryId);
-              if (libraryToRename) {
-                // handleRenameSubmit from useLibraryManager is assumed to use its internal
-                // currentEditName state, which should have been updated by onLibraryNameChange.
-                // The newName param here is part of the prop signature but not directly passed to this specific hook handler.
-                handleRenameSubmit(libraryToRename, newName);
+              if (!libraryToRename) {
+                console.error('[ERROR] Library not found for ID:', libraryId);
+                return;
+              }
+              
+              // Exit editing mode immediately
+              setEditingLibraryId(null);
+              
+              // Validate the new name
+              const trimmedName = newName.trim();
+              if (!trimmedName || trimmedName === libraryToRename.name) {
+                console.log('[INFO] Rename cancelled or name unchanged');
+                return;
+              }
+              
+              // Extract the folder name from the path - this is what the StorageService expects
+              const pathParts = libraryToRename.path.split('/');
+              const folderName = pathParts[pathParts.length - 1];
+              
+              // Log all library information for debugging
+              console.log('[DEBUG] Library to rename details:', {
+                id: libraryToRename.id,
+                name: libraryToRename.name,
+                path: libraryToRename.path,
+                folderName,
+                pathParts
+              });
+              
+              console.log(`[INFO] Attempting to rename library '${folderName}' to '${trimmedName}'`);
+              
+              if (window.electronAPI && window.electronAPI.renameUserLibrary) {
+                try {
+                  // Try using just the library name first
+                  console.log(`[DEBUG] Calling renameUserLibrary with: oldName='${libraryToRename.name}', newName='${trimmedName}'`);
+                  const result = await window.electronAPI.renameUserLibrary(libraryToRename.name, trimmedName);
+                  console.log('[INFO] Rename result:', result);
+                  
+                  if (result.success) {
+                    console.log(`[SUCCESS] Library renamed from '${result.oldPath}' to '${result.newPath}'`);
+                    // Refresh libraries to show the updated name
+                    fetchUserLibraries();
+                  } else {
+                    console.error('[ERROR] Failed to rename library:', result.error);
+                  }
+                } catch (error) {
+                  console.error('[ERROR] Exception during rename:', error);
+                }
+              } else {
+                console.error('[ERROR] renameUserLibrary API not available');
               }
             }}
-            editingLibraryId={editingLibraryId} // from useLibraryManager
-            currentEditName={currentEditName} // from useLibraryManager
+            editingLibraryId={editingLibraryId}
+            currentEditName={currentEditName}
             onLibraryDoubleClick={(libraryId: string, currentName: string) => {
               const libraryToEdit = uniqueLibraries.find(lib => lib.id === libraryId);
               if (libraryToEdit) {
-                // handleLibraryDoubleClick from useLibraryManager expects a Library object
-                // It will set editingLibraryId and currentEditName internally
                 handleLibraryDoubleClick(libraryToEdit);
               }
             }}
-            onLibraryNameChange={(newName: string) => {
-              // handleLibraryNameChange from useLibraryManager expects a ChangeEvent
-              handleLibraryNameChange({ target: { value: newName } } as React.ChangeEvent<HTMLInputElement>);
-            }}
+            onLibraryNameChange={(newName: string) => { setCurrentEditName(newName); }}
+            onPresentationCreateAttempted={handlePresentationCreateFeedback}
             onLibraryNameKeyDown={(event: React.KeyboardEvent<HTMLInputElement>, libraryId: string) => {
-              const libraryToEdit = uniqueLibraries.find(lib => lib.id === libraryId);
-              if (libraryToEdit) {
-                // handleLibraryNameKeyDown from useLibraryManager expects a Library object
-                handleLibraryNameKeyDown(event, libraryToEdit);
+              console.log('[DEBUG] onLibraryNameKeyDown called with key:', event.key);
+              if (event.key === 'Enter') {
+                // Use the same handler as onBlur for consistency
+                const libraryToRename = uniqueLibraries.find(lib => lib.id === libraryId);
+                if (libraryToRename) {
+                  console.log('[DEBUG] Enter key pressed, calling rename with:', { libraryId, currentEditName });
+                  // Call our rename handler directly
+                  const handler = async (id: string, name: string) => {
+                    console.log('[DEBUG] Enter key handler called with:', { id, name });
+                    const libToRename = uniqueLibraries.find(lib => lib.id === id);
+                    if (!libToRename) {
+                      console.error('[ERROR] Library not found for ID:', id);
+                      return;
+                    }
+                    
+                    // Exit editing mode immediately
+                    setEditingLibraryId(null);
+                    
+                    // Validate the new name
+                    const trimmedName = name.trim();
+                    if (!trimmedName || trimmedName === libToRename.name) {
+                      console.log('[INFO] Rename cancelled or name unchanged');
+                      return;
+                    }
+                    
+                    console.log(`[INFO] Attempting to rename library '${libToRename.name}' to '${trimmedName}'`);
+                    
+                    if (window.electronAPI && window.electronAPI.renameUserLibrary) {
+                      try {
+                        const result = await window.electronAPI.renameUserLibrary(libToRename.path, trimmedName);
+                        console.log('[INFO] Rename result:', result);
+                        
+                        if (result.success) {
+                          console.log(`[SUCCESS] Library renamed from '${result.oldPath}' to '${result.newPath}'`);
+                          // Refresh libraries to show the updated name
+                          fetchUserLibraries();
+                        } else {
+                          console.error('[ERROR] Failed to rename library:', result.error);
+                        }
+                      } catch (error) {
+                        console.error('[ERROR] Exception during rename:', error);
+                      }
+                    } else {
+                      console.error('[ERROR] renameUserLibrary API not available');
+                    }
+                  };
+                  
+                  handler(libraryId, currentEditName);
+                }
+              } else if (event.key === 'Escape') {
+                console.log('[DEBUG] Escape key pressed, cancelling edit');
+                setEditingLibraryId(null);
+                setCurrentEditName('');
               }
             }}
             onAddCuelist={() => { // For CuelistsSection
@@ -649,9 +783,23 @@ const PresentationWidget: React.FC<PresentationWidgetProps> = ({ themeColors }) 
                 console.warn('[PW] Cannot add cuelist: No library selected or invalid selection.');
               }
             }}
-            onAddItemToSelectedList={selectedItemType === 'cuelist' ? openAddCueModal : undefined} // For SelectedItemContentView when a cuelist is active
+            onAddItemToSelectedList={() => {
+              if (selectedItemType === 'library' && selectedItemId) {
+                const selectedLibrary = uniqueLibraries.find(lib => lib.id === selectedItemId);
+                if (selectedLibrary) {
+                  console.log(`[PresentationWidget] Creating new presentation in library: ${selectedLibrary.path}`);
+                  createNewPresentation(selectedLibrary.path);
+                }
+              } else if (selectedItemType === 'cuelist') {
+                // Handle adding cues to a cuelist
+                openAddCueModal();
+              } else {
+                console.log('[PresentationWidget] Add item clicked but no library or cuelist selected');
+              }
+            }}
             onSelectCue={handleSelectCue} // from useCueSlideManager, for SelectedItemContentView
             selectedCueId={selectedCueId} // from useCueSlideManager
+            // The selectedLibraryPath is handled internally by the LibraryCueListCombinedView component
           />
         );
       case 'automation':

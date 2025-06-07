@@ -5,7 +5,8 @@ import path from 'path';
 import fs from 'fs'; // Still needed for some synchronous checks and other file ops
 import chokidar, { FSWatcher } from 'chokidar'; // Added for robust watching
 import { PATH_CONFIG } from '@utils/pathconfig';
-import { StorageChannel, Cue, Cuelist } from '../shared/ipcChannels';
+import { StorageChannel, Cue, Cuelist, AIOPresentationContent, Slide, SlideElement, Library, PresentationFile } from '../shared/ipcChannels';
+import { v4 as uuidv4 } from 'uuid';
 
 class StorageService {
   private documentsBasePath: string;
@@ -413,14 +414,23 @@ class StorageService {
       return { success: false, error: 'Old and new library names must be provided.' };
     }
 
+    // Handle case where oldName is a full path instead of just a folder name
+    let oldNameFolder = oldName;
+    if (oldName.includes('/')) {
+      // Extract just the folder name from the path
+      const pathParts = oldName.split('/');
+      oldNameFolder = pathParts[pathParts.length - 1];
+      console.log(`[SS_DEBUG_MAIN] renameUserLibrary: Extracted folder name '${oldNameFolder}' from full path '${oldName}'`);
+    }
+
     // Prevent renaming of protected libraries
-    if (oldName === PATH_CONFIG.DEFAULT_LIBRARY_DIR_NAME || oldName === PATH_CONFIG.MEDIA_LIBRARY_DIR_NAME) {
-      console.warn(`[SS_DEBUG_MAIN] renameUserLibrary: Attempt to rename protected library '${oldName}'.`);
-      return { success: false, error: `Cannot rename protected library '${oldName}'.` };
+    if (oldNameFolder === PATH_CONFIG.DEFAULT_LIBRARY_DIR_NAME || oldNameFolder === PATH_CONFIG.MEDIA_LIBRARY_DIR_NAME) {
+      console.warn(`[SS_DEBUG_MAIN] renameUserLibrary: Attempt to rename protected library '${oldNameFolder}'.`);
+      return { success: false, error: `Cannot rename protected library '${oldNameFolder}'.` };
     }
 
     // Sanitize the new name
-    const sanitizedNewName = newName.replace(/[\/:*?"<>|]/g, '');
+    const sanitizedNewName = newName.replace(/[\/\:*?"<>|]/g, '');
     if (sanitizedNewName !== newName) {
       console.warn(`[SS_DEBUG_MAIN] renameUserLibrary: New library name contained invalid characters. Original: '${newName}', Sanitized: '${sanitizedNewName}'`);
       if (!sanitizedNewName) {
@@ -434,7 +444,7 @@ class StorageService {
       return { success: false, error: `Cannot rename library to a protected name '${sanitizedNewName}'.` };
     }
 
-    const oldLibraryPath = path.join(this.presentationLibraryPath, oldName);
+    const oldLibraryPath = path.join(this.presentationLibraryPath, oldNameFolder);
     const newLibraryPath = path.join(this.presentationLibraryPath, sanitizedNewName);
 
     console.log(`[SS_DEBUG_MAIN] renameUserLibrary: Old path: ${oldLibraryPath}`);
@@ -504,6 +514,120 @@ class StorageService {
       return { success: false, error: `Failed to delete library '${libraryName}': ${errorMessage}` };
     }
   }
+
+  public async createPresentationFile(
+    libraryPath: string,
+    baseName: string = 'New Presentation'
+  ): Promise<{ success: boolean; filePath?: string; error?: string }> {
+    console.log(`[SS_DEBUG_MAIN] createPresentationFile: Called for libraryPath: ${libraryPath}, baseName: ${baseName}`);
+    if (!libraryPath || !baseName) {
+      return { success: false, error: 'Library path and base name are required.' };
+    }
+
+    try {
+      // Ensure the library directory exists
+      await this.ensureDirectoryExists(libraryPath);
+
+      let presentationName = baseName;
+      let presentationFilePath = path.join(libraryPath, `${presentationName}.AIOPresentation`);
+      let counter = 1;
+
+      // Ensure unique filename
+      while (fs.existsSync(presentationFilePath)) {
+        presentationName = `${baseName} (${counter})`;
+        presentationFilePath = path.join(libraryPath, `${presentationName}.AIOPresentation`);
+        counter++;
+      }
+
+      console.log(`[SS_DEBUG_MAIN] createPresentationFile: Determined unique file path: ${presentationFilePath}`);
+
+      const defaultSlide: Slide = {
+        id: uuidv4(),
+        name: 'Slide 1',
+        elements: [],
+        backgroundColor: '#FFFFFF',
+      };
+
+      const presentationContent: AIOPresentationContent = {
+        version: '1.0',
+        slides: [defaultSlide],
+      };
+
+      await fs.promises.writeFile(presentationFilePath, JSON.stringify(presentationContent, null, 2));
+      console.log(`[SS_DEBUG_MAIN] createPresentationFile: Successfully created presentation file at ${presentationFilePath}`);
+      return { success: true, filePath: presentationFilePath };
+
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error(`[SS_DEBUG_MAIN] createPresentationFile: Error creating presentation file in ${libraryPath}:`, errorMessage);
+      return { success: false, error: `Failed to create presentation file: ${errorMessage}` };
+    }
+  }
+
+  /**
+   * Lists all presentation files in a library directory.
+   * @param libraryPath The absolute path to the library directory
+   * @returns A list of presentation files with their metadata
+   */
+  public async listPresentationFiles(libraryPath: string): Promise<{ success: boolean; files?: PresentationFile[]; error?: string }> {
+    console.log(`[SS_DEBUG_MAIN] listPresentationFiles: Called for libraryPath:`, libraryPath);
+    console.log(`[SS_DEBUG_MAIN] listPresentationFiles: libraryPath type:`, typeof libraryPath);
+    
+    if (!libraryPath) {
+      console.error('[SS_DEBUG_MAIN] listPresentationFiles: Library path is empty or null');
+      return { success: false, error: 'Library path is required.' };
+    }
+    
+    try {
+      // Check if the directory exists
+      console.log(`[SS_DEBUG_MAIN] listPresentationFiles: Checking if directory exists: ${libraryPath}`);
+      if (!fs.existsSync(libraryPath)) {
+        console.error(`[SS_DEBUG_MAIN] listPresentationFiles: Library directory does not exist: ${libraryPath}`);
+        return { success: false, error: `Library directory does not exist: ${libraryPath}` };
+      }
+      
+      // Read all files in the directory
+      console.log(`[SS_DEBUG_MAIN] listPresentationFiles: Reading directory contents: ${libraryPath}`);
+      const files = await fs.promises.readdir(libraryPath);
+      console.log(`[SS_DEBUG_MAIN] listPresentationFiles: Found ${files.length} total files in directory`);
+      console.log(`[SS_DEBUG_MAIN] listPresentationFiles: Files found:`, files);
+      
+      // Filter for .AIOPresentation files
+      const presentationFiles = files
+        .filter(file => {
+          const isPresentation = file.endsWith('.AIOPresentation');
+          console.log(`[SS_DEBUG_MAIN] File ${file} is presentation file: ${isPresentation}`);
+          return isPresentation;
+        })
+        .map(fileName => {
+          const filePath = path.join(libraryPath, fileName);
+          const stats = fs.statSync(filePath);
+          
+          const presentationFile = {
+            id: `${libraryPath}-${fileName}`,
+            name: fileName,
+            path: filePath,
+            type: 'custom' as const
+          };
+          
+          console.log(`[SS_DEBUG_MAIN] Created presentation file object:`, presentationFile);
+          return presentationFile;
+        });
+      
+      console.log(`[SS_DEBUG_MAIN] listPresentationFiles: Found ${presentationFiles.length} presentation files in ${libraryPath}`);
+      console.log(`[SS_DEBUG_MAIN] listPresentationFiles: Presentation files:`, presentationFiles);
+      
+      return { success: true, files: presentationFiles };
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error(`[SS_DEBUG_MAIN] listPresentationFiles: Error listing files in ${libraryPath}:`, errorMessage);
+      return { success: false, error: `Failed to list presentation files: ${errorMessage}` };
+    }
+  }
+
+  /**
+   * Creates a new presentation file in the specified library.
+   */
 }
 
 const StorageServiceInstance = new StorageService();

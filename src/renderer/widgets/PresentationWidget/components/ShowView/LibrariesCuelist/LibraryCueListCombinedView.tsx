@@ -18,7 +18,15 @@ export interface LibraryCueListCombinedViewProps {
   onSelectItem: (id: string | null, type: 'library' | 'cuelist' | 'folder' | null) => void;
   itemsForCueList: PresentationFile[] | Cue[];
   cueListItemType: 'presentation' | 'cue' | null;
-  onAddLibrary: () => void;
+  // Props for library creation and renaming
+  onCreateNewLibrary: () => void; // Replaces onAddLibrary
+  onRenameLibrarySubmit: (libraryId: string, newName: string) => void;
+  editingLibraryId: string | null;
+  currentEditName: string;
+  onLibraryDoubleClick: (libraryId: string, currentName: string) => void;
+  onLibraryNameChange: (newName: string) => void;
+  onLibraryNameKeyDown: (event: React.KeyboardEvent<HTMLInputElement>, libraryId: string) => void;
+
   onAddCuelist: () => void;
   onSelectCue: (cueId: string) => void;
   allCues: Cue[];
@@ -35,12 +43,20 @@ const LibraryCueListCombinedView: React.FC<LibraryCueListCombinedViewProps> = ({
   onSelectItem,
   itemsForCueList,
   cueListItemType,
-  onAddLibrary,
+  // Library specific props
+  onCreateNewLibrary,
+  onRenameLibrarySubmit,
+  editingLibraryId,
+  currentEditName,
+  onLibraryDoubleClick,
+  onLibraryNameChange,
+  onLibraryNameKeyDown,
+  // Other props
   onAddCuelist,
   onSelectCue,
   selectedCueId,
   allCues,
-  onAddItemToSelectedList = () => { console.warn('onAddItemToSelectedList not implemented or passed'); }, // Provide a default no-op if not passed
+  onAddItemToSelectedList = () => { console.warn('onAddItemToSelectedList not implemented or passed'); },
 }) => {
   console.log('[LibraryCueListCombinedView] Rendering with two-panel layout...');
   console.log('[LibraryCueListCombinedView] Libraries prop:', libraries);
@@ -79,7 +95,14 @@ const LibraryCueListCombinedView: React.FC<LibraryCueListCombinedViewProps> = ({
           libraries={libraries}
           selectedLibraryId={selectedItemType === 'library' ? selectedItemId : null}
           onSelectLibrary={(id: string | null) => onSelectItem(id, 'library')}
-          onAddLibrary={onAddLibrary}
+          // Library creation and renaming props
+          onCreateNewLibrary={onCreateNewLibrary}
+          onRenameLibrarySubmit={onRenameLibrarySubmit}
+          editingLibraryId={editingLibraryId}
+          currentEditName={currentEditName}
+          onLibraryDoubleClick={onLibraryDoubleClick}
+          onLibraryNameChange={onLibraryNameChange}
+          onLibraryNameKeyDown={onLibraryNameKeyDown}
         />
         <CuelistsSection
           themeColors={themeColors}

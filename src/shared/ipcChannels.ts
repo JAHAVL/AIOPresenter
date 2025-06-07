@@ -9,6 +9,8 @@ export enum StorageChannel {
   GET_STORAGE_PATHS = 'storage:get-paths', // Existing from previous work
   LIST_USER_LIBRARIES_REPLY = 'storage:list-user-libraries-reply',
   LIBRARIES_DID_CHANGE = 'storage:libraries-did-change',
+  RENAME_USER_LIBRARY = 'storage:rename-user-library',
+  DELETE_USER_LIBRARY = 'storage:delete-user-library',
   // Add other storage-related channels here
 }
 
@@ -33,7 +35,7 @@ export interface Library {
   id: string;
   name: string;
   path: string; // Absolute path to the library's folder
-  cues: Cue[]; // A library directly contains cues (temporary change)
+  cuelists?: Cuelist[]; // A library contains cuelists
 }
 
 export interface ListUserLibrariesResponse {

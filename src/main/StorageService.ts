@@ -5,7 +5,7 @@ import path from 'path';
 import fs from 'fs'; // Still needed for some synchronous checks and other file ops
 import chokidar, { FSWatcher } from 'chokidar'; // Added for robust watching
 import { PATH_CONFIG } from '@utils/pathconfig';
-import { StorageChannel, Cue } from '../shared/ipcChannels';
+import { StorageChannel, Cue, Cuelist } from '../shared/ipcChannels';
 
 class StorageService {
   private documentsBasePath: string;
@@ -193,34 +193,15 @@ class StorageService {
     }
   }
 
-  public async getLibraryCues(libraryName: string): Promise<Cue[]> {
-    const libraryPath = path.join(this.presentationLibraryPath, libraryName);
-    const cueFilePath = path.join(libraryPath, 'cue.json'); // Using 'cue.json' directly
-    console.log(`[SS_DEBUG_MAIN] getLibraryCues: Attempting to read cues for library '${libraryName}' from ${cueFilePath}`);
-
-    try {
-      // First, ensure the library directory itself exists
-      if (!(await this.directoryExists(libraryPath))) {
-        console.warn(`[SS_DEBUG_MAIN] getLibraryCues: Library folder '${libraryName}' does not exist at ${libraryPath}. Returning empty cues.`);
-        return [];
-      }
-
-      // Check if cue.json exists before trying to read it
-      await fs.promises.access(cueFilePath, fs.constants.F_OK);
-      const fileContent = await fs.promises.readFile(cueFilePath, 'utf-8');
-      const cues: Cue[] = JSON.parse(fileContent);
-      console.log(`[SS_DEBUG_MAIN] getLibraryCues: Successfully read and parsed cues for library '${libraryName}'. Found ${cues.length} cues.`);
-      return cues;
-    } catch (error: any) {
-      if (error.code === 'ENOENT') {
-        // This means cue.json was not found, which is a common case for an empty library or one without cues yet.
-        console.log(`[SS_DEBUG_MAIN] getLibraryCues: cue.json not found for library '${libraryName}' at ${cueFilePath}. Returning empty cues.`);
-      } else {
-        // Other errors (e.g., parsing error, permissions)
-        console.error(`[SS_DEBUG_MAIN] getLibraryCues: Error reading or parsing cue.json for library '${libraryName}':`, error.message);
-      }
-      return []; // Return empty array if cue.json doesn't exist or on other errors
-    }
+  public async getLibraryCuelists(libraryName: string): Promise<Cuelist[]> {
+    console.log(`[SS_DEBUG_MAIN] getLibraryCuelists: Placeholder for library: ${libraryName}. Returning empty Cuelist array.`);
+    // TODO: Implement actual logic to read cuelist files from the library directory.
+    // This will involve:
+    // 1. Reading directory contents.
+    // 2. Filtering for files ending with a specific cuelist extension (e.g., .cuelist.json).
+    // 3. Reading and parsing each cuelist file.
+    // 4. Validating the structure against the Cuelist interface.
+    return Promise.resolve([]);
   }
 
   private startWatchingLibrariesDirectory(): void {
@@ -311,17 +292,29 @@ class StorageService {
     return this.defaultUserLibraryPath;
   }
 
-  public async createUserLibrary(libraryName: string): Promise<{ success: boolean; path?: string; error?: string }> {
-    console.log(`[SS_DEBUG_MAIN] createUserLibrary: Attempting to create library: ${libraryName}`);
-    if (!libraryName || libraryName.trim() === '') {
-      console.warn('[SS_DEBUG_MAIN] createUserLibrary: Library name cannot be empty.');
-      return { success: false, error: 'Library name cannot be empty.' };
+  public async createUserLibrary(libraryName?: string): Promise<{ success: boolean; path?: string; error?: string }> {
+    let targetLibraryName = libraryName;
+
+    if (!targetLibraryName || targetLibraryName.trim() === '') {
+      console.log('[SS_DEBUG_MAIN] createUserLibrary: No library name provided, using default "New Library" logic.');
+      let baseName = 'New Library';
+      let counter = 0;
+      targetLibraryName = baseName;
+      let potentialPath = path.join(this.presentationLibraryPath, targetLibraryName);
+      while (fs.existsSync(potentialPath)) { // fs.existsSync is synchronous
+        counter++;
+        targetLibraryName = `${baseName} ${counter}`;
+        potentialPath = path.join(this.presentationLibraryPath, targetLibraryName);
+      }
+      console.log(`[SS_DEBUG_MAIN] createUserLibrary: Determined available name: ${targetLibraryName}`);
     }
 
+    console.log(`[SS_DEBUG_MAIN] createUserLibrary: Attempting to create library: ${targetLibraryName}`);
+    
     // Basic sanitization for library name to prevent path traversal or invalid characters
-    const sanitizedLibraryName = libraryName.replace(/[\/:*?"<>|]/g, '');
-    if (sanitizedLibraryName !== libraryName) {
-      console.warn(`[SS_DEBUG_MAIN] createUserLibrary: Library name contained invalid characters. Original: '${libraryName}', Sanitized: '${sanitizedLibraryName}'`);
+    const sanitizedLibraryName = targetLibraryName.replace(/[\/:*?"<>|]/g, '');
+    if (sanitizedLibraryName !== targetLibraryName) {
+      console.warn(`[SS_DEBUG_MAIN] createUserLibrary: Library name contained invalid characters. Original: '${targetLibraryName}', Sanitized: '${sanitizedLibraryName}'`);
       // Optionally, you could reject here or proceed with sanitized name
       // For now, let's inform and proceed with sanitized, but this might need stricter rules
       if (!sanitizedLibraryName) {
@@ -409,6 +402,106 @@ class StorageService {
       console.log('[SS_DEBUG_MAIN] stopWatchingLibrariesDirectory: Chokidar library watcher closed and set to null.');
     } else {
       console.log('[SS_DEBUG_MAIN] stopWatchingLibrariesDirectory: No active chokidar library watcher to stop.');
+    }
+  }
+
+  public async renameUserLibrary(oldName: string, newName: string): Promise<{ success: boolean; oldPath?: string; newPath?: string; error?: string }> {
+    console.log(`[SS_DEBUG_MAIN] renameUserLibrary: Attempting to rename library '${oldName}' to '${newName}'`);
+
+    if (!oldName || oldName.trim() === '' || !newName || newName.trim() === '') {
+      console.warn('[SS_DEBUG_MAIN] renameUserLibrary: Both old and new library names cannot be empty.');
+      return { success: false, error: 'Old and new library names must be provided.' };
+    }
+
+    // Prevent renaming of protected libraries
+    if (oldName === PATH_CONFIG.DEFAULT_LIBRARY_DIR_NAME || oldName === PATH_CONFIG.MEDIA_LIBRARY_DIR_NAME) {
+      console.warn(`[SS_DEBUG_MAIN] renameUserLibrary: Attempt to rename protected library '${oldName}'.`);
+      return { success: false, error: `Cannot rename protected library '${oldName}'.` };
+    }
+
+    // Sanitize the new name
+    const sanitizedNewName = newName.replace(/[\/:*?"<>|]/g, '');
+    if (sanitizedNewName !== newName) {
+      console.warn(`[SS_DEBUG_MAIN] renameUserLibrary: New library name contained invalid characters. Original: '${newName}', Sanitized: '${sanitizedNewName}'`);
+      if (!sanitizedNewName) {
+        return { success: false, error: 'New library name became empty after sanitization due to invalid characters.' };
+      }
+    }
+    
+    // Prevent renaming TO a protected name
+    if (sanitizedNewName === PATH_CONFIG.DEFAULT_LIBRARY_DIR_NAME || sanitizedNewName === PATH_CONFIG.MEDIA_LIBRARY_DIR_NAME) {
+      console.warn(`[SS_DEBUG_MAIN] renameUserLibrary: Attempt to rename to a protected name '${sanitizedNewName}'.`);
+      return { success: false, error: `Cannot rename library to a protected name '${sanitizedNewName}'.` };
+    }
+
+    const oldLibraryPath = path.join(this.presentationLibraryPath, oldName);
+    const newLibraryPath = path.join(this.presentationLibraryPath, sanitizedNewName);
+
+    console.log(`[SS_DEBUG_MAIN] renameUserLibrary: Old path: ${oldLibraryPath}`);
+    console.log(`[SS_DEBUG_MAIN] renameUserLibrary: New path: ${newLibraryPath}`);
+
+    if (oldLibraryPath === newLibraryPath) {
+      console.log('[SS_DEBUG_MAIN] renameUserLibrary: Old and new names are the same after sanitization. No action needed.');
+      return { success: true, oldPath: oldLibraryPath, newPath: newLibraryPath }; 
+    }
+
+    try {
+      const oldStats = await fs.promises.stat(oldLibraryPath).catch(() => null);
+      if (!oldStats || !oldStats.isDirectory()) {
+        console.error(`[SS_DEBUG_MAIN] renameUserLibrary: Source library directory '${oldName}' not found at ${oldLibraryPath} or is not a directory.`);
+        return { success: false, error: `Source library '${oldName}' not found or is not a directory.` };
+      }
+
+      const newStats = await fs.promises.stat(newLibraryPath).catch(() => null);
+      if (newStats) {
+        console.error(`[SS_DEBUG_MAIN] renameUserLibrary: Target library name '${sanitizedNewName}' already exists at ${newLibraryPath}.`);
+        return { success: false, error: `A library or file named '${sanitizedNewName}' already exists.` };
+      }
+
+      await fs.promises.rename(oldLibraryPath, newLibraryPath);
+      console.log(`[SS_DEBUG_MAIN] renameUserLibrary: Successfully renamed '${oldName}' to '${sanitizedNewName}'.`);
+      return { success: true, oldPath: oldLibraryPath, newPath: newLibraryPath };
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error(`[SS_DEBUG_MAIN] renameUserLibrary: Error renaming library from ${oldLibraryPath} to ${newLibraryPath}:`, errorMessage);
+      return { success: false, error: `Failed to rename library '${oldName}' to '${sanitizedNewName}': ${errorMessage}` };
+    }
+  }
+
+  public async deleteUserLibrary(libraryName: string): Promise<{ success: boolean; error?: string }> {
+    console.log(`[SS_DEBUG_MAIN] deleteUserLibrary: Attempting to delete library '${libraryName}'`);
+
+    if (!libraryName || libraryName.trim() === '') {
+      console.warn('[SS_DEBUG_MAIN] deleteUserLibrary: Library name cannot be empty.');
+      return { success: false, error: 'Library name must be provided.' };
+    }
+
+    // Prevent deletion of protected libraries
+    if (libraryName === PATH_CONFIG.DEFAULT_LIBRARY_DIR_NAME || libraryName === PATH_CONFIG.MEDIA_LIBRARY_DIR_NAME) {
+      console.warn(`[SS_DEBUG_MAIN] deleteUserLibrary: Attempt to delete protected library '${libraryName}'.`);
+      return { success: false, error: `Cannot delete protected library '${libraryName}'.` };
+    }
+
+    const libraryPath = path.join(this.presentationLibraryPath, libraryName);
+    console.log(`[SS_DEBUG_MAIN] deleteUserLibrary: Library path to delete: ${libraryPath}`);
+
+    try {
+      const stats = await fs.promises.stat(libraryPath).catch(() => null);
+      if (!stats || !stats.isDirectory()) {
+        console.error(`[SS_DEBUG_MAIN] deleteUserLibrary: Library directory '${libraryName}' not found at ${libraryPath} or is not a directory.`);
+        return { success: false, error: `Library '${libraryName}' not found or is not a directory.` };
+      }
+
+      // Use fs.promises.rm for Node 14.14.0+ (recursive and force options)
+      // For older Node, fs.promises.rmdir(libraryPath, { recursive: true }) would be needed.
+      // Assuming Electron version uses a recent enough Node.js.
+      await fs.promises.rm(libraryPath, { recursive: true, force: true });
+      console.log(`[SS_DEBUG_MAIN] deleteUserLibrary: Successfully deleted library '${libraryName}' at ${libraryPath}.`);
+      return { success: true };
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error(`[SS_DEBUG_MAIN] deleteUserLibrary: Error deleting library ${libraryPath}:`, errorMessage);
+      return { success: false, error: `Failed to delete library '${libraryName}': ${errorMessage}` };
     }
   }
 }

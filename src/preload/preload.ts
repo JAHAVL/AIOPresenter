@@ -80,6 +80,51 @@ const electronAPIExports = {
       });
   },
 
+  // Create User Library
+  createUserLibrary: (libraryName?: string): Promise<{ success: boolean; path?: string; error?: string }> => {
+    const channel = StorageChannel.CREATE_USER_LIBRARY;
+    console.log(`[preload.ts] createUserLibrary: Attempting to invoke on channel '${channel}' with name: ${libraryName}`);
+    return ipcRenderer.invoke(channel, libraryName)
+      .then(result => {
+        console.log(`[preload.ts] createUserLibrary resolved successfully for '${libraryName}':`, result);
+        return result; // Should be { success: boolean; path?: string; error?: string }
+      })
+      .catch(err => {
+        console.error(`[preload.ts] createUserLibrary failed for '${libraryName}':`, err);
+        return { success: false, error: err.message };
+      });
+  },
+
+  // Rename User Library
+  renameUserLibrary: (oldName: string, newName: string): Promise<{ success: boolean; oldPath?: string; newPath?: string; error?: string }> => {
+    const channel = StorageChannel.RENAME_USER_LIBRARY;
+    console.log(`[preload.ts] renameUserLibrary: Attempting to invoke on channel '${channel}' with oldName '${oldName}', newName '${newName}'`);
+    return ipcRenderer.invoke(channel, oldName, newName)
+      .then(result => {
+        console.log(`[preload.ts] renameUserLibrary resolved successfully for '${oldName}' -> '${newName}':`, result);
+        return result; // Should be { success: boolean; oldPath?: string; newPath?: string; error?: string }
+      })
+      .catch(err => {
+        console.error(`[preload.ts] renameUserLibrary failed for '${oldName}' -> '${newName}':`, err);
+        return { success: false, error: err.message };
+      });
+  },
+
+  // Delete User Library
+  deleteUserLibrary: (libraryName: string): Promise<{ success: boolean; error?: string }> => {
+    const channel = StorageChannel.DELETE_USER_LIBRARY;
+    console.log(`[preload.ts] deleteUserLibrary: Attempting to invoke on channel '${channel}' with library name '${libraryName}'`);
+    return ipcRenderer.invoke(channel, libraryName)
+      .then(result => {
+        console.log(`[preload.ts] deleteUserLibrary resolved successfully for '${libraryName}':`, result);
+        return result; // Should be { success: boolean; error?: string }
+      })
+      .catch(err => {
+        console.error(`[preload.ts] deleteUserLibrary failed for '${libraryName}':`, err);
+        return { success: false, error: err.message };
+      });
+  },
+
   // General on listener (if needed for other dynamic channels, use with caution)
   on: (channel: string, listener: (event: IpcRendererEvent, ...args: any[]) => void) => {
     console.log(`[preload.ts] Setting up listener for channel: '${channel}'`);

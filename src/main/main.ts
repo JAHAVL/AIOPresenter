@@ -268,12 +268,12 @@ const setupIPCListeners = () => {
       const libraries: Library[] = [];
       for (const folderName of libraryFolderNames) {
         const libraryPath = path.join(storageService.getPresentationLibraryPath(), folderName);
-        const cues = await storageService.getLibraryCues(folderName);
+        const cuelists = await storageService.getLibraryCuelists(folderName);
         libraries.push({
           id: folderName, // Use folderName as id
           name: folderName,
           path: libraryPath,
-          cues: cues,
+          cuelists: cuelists,
         });
       }
 
@@ -294,6 +294,35 @@ const setupIPCListeners = () => {
     } catch (error: unknown) {
       console.error(`IPC Event: ${StorageChannel.CREATE_USER_LIBRARY} - Error creating library:`, error);
       return { success: false, error: (error instanceof Error ? error.message : String(error)) || 'Unknown error during createUserLibrary' };
+    }
+  });
+
+  ipcMain.handle(StorageChannel.RENAME_USER_LIBRARY, async (event, ...args) => {
+    console.log(`[main.ts] RENAME_USER_LIBRARY handler raw ARGS:`, args);
+    const oldName = args[0] as string;
+    const newName = args[1] as string;
+    console.log(`IPC Event: ${StorageChannel.RENAME_USER_LIBRARY} received to rename '${oldName}' to '${newName}'.`);
+    try {
+      const result = await storageService.renameUserLibrary(oldName, newName);
+      console.log(`IPC Event: ${StorageChannel.RENAME_USER_LIBRARY} - Rename result:`, result);
+      return result;
+    } catch (error: unknown) {
+      console.error(`IPC Event: ${StorageChannel.RENAME_USER_LIBRARY} - Error renaming library:`, error);
+      return { success: false, error: (error instanceof Error ? error.message : String(error)) || 'Unknown error during renameUserLibrary' };
+    }
+  });
+
+  ipcMain.handle(StorageChannel.DELETE_USER_LIBRARY, async (event, libraryName: string) => {
+    console.log(`IPC Event: ${StorageChannel.DELETE_USER_LIBRARY} received to delete library '${libraryName}'.`);
+    try {
+      // Assuming libraryName is sufficient to identify and delete the library folder.
+      // If the full path is needed and libraryName is just the name, StorageService might need to resolve it.
+      const result = await storageService.deleteUserLibrary(libraryName);
+      console.log(`IPC Event: ${StorageChannel.DELETE_USER_LIBRARY} - Delete result:`, result);
+      return result;
+    } catch (error: unknown) {
+      console.error(`IPC Event: ${StorageChannel.DELETE_USER_LIBRARY} - Error deleting library:`, error);
+      return { success: false, error: (error instanceof Error ? error.message : String(error)) || 'Unknown error during deleteUserLibrary' };
     }
   });
 

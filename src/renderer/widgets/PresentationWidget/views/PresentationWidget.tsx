@@ -49,12 +49,129 @@ const PresentationWidget: React.FC<PresentationWidgetProps> = ({ themeColors }) 
   console.log('[PresentationWidget] Rendering...');
   // Modal State and Logic - managed by useInputModal hook for generic modals
   const { isModalOpen: isGenericModalOpen, modalProps: genericModalProps, openModal: openGenericModal, closeModal: closeGenericModal } = useInputModal();
+  const [editingLibraryId, setEditingLibraryId] = useState<string | null>(null);
+  const [currentEditName, setCurrentEditName] = useState<string>('');
 
   // Core Data States (excluding those dependent on seed data defined later)
   const { uniqueLibraries, isLoading: librariesLoading, error: librariesError, fetchUserLibraries } = useLibraryManager();
   // Data Sync (storagePaths and IPC listeners for data changes)
   const { storagePaths, lastRefreshTimestamp, refreshLibraries } = useDataSync({ fetchUserLibraries });
   
+  const handleCreateNewLibrary = async () => {
+    console.log('[PresentationWidget] Attempting to create new library...');
+    if (window.electronAPI && window.electronAPI.createUserLibrary) {
+      try {
+        const result = await window.electronAPI.createUserLibrary(); // No name, backend defaults
+        console.log('[PresentationWidget] createUserLibrary result:', result);
+        if (result.success) {
+          console.log(`[PresentationWidget] New library created at: ${result.path}`);
+          refreshLibraries();
+        } else {
+          console.error('[PresentationWidget] Failed to create library:', result.error);
+          openGenericModal({
+            title: 'Error Creating Library',
+            message: `Could not create new library: ${result.error || 'Unknown error'}.`,
+            onSubmit: (_value: string) => {},
+          });
+        }
+      } catch (error) {
+        console.error('[PresentationWidget] Error calling createUserLibrary:', error);
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        openGenericModal({
+          title: 'Error',
+          message: `An unexpected error occurred: ${errorMessage}`,
+          onSubmit: (_value: string) => {},
+        });
+      }
+    } else {
+      console.error('[PresentationWidget] electronAPI.createUserLibrary is not available.');
+      openGenericModal({
+        title: 'Error',
+        message: 'Functionality to create library is not available.',
+        onSubmit: (_value: string) => {},
+      });
+    }
+  };
+
+  const handleLibraryDoubleClick = (library: Library) => {
+    if (library.name === 'Media Library' || library.name === 'Default User Library') {
+      openGenericModal({
+        title: 'Rename Not Allowed',
+        message: `The library "${library.name}" is a system library and cannot be renamed.`,
+        onSubmit: (_value: string) => {},
+      });
+      return;
+    }
+    setEditingLibraryId(library.id);
+    setCurrentEditName(library.name);
+  };
+
+  const handleLibraryNameChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    setCurrentEditName(event.target.value);
+  };
+
+  const handleRenameSubmit = async (originalLibrary: Library, newNameFromInput: string) => {
+    if (!editingLibraryId || !originalLibrary) return;
+
+    const newName = newNameFromInput.trim();
+    setEditingLibraryId(null); // Exit editing mode immediately
+
+    if (!newName || newName === originalLibrary.name) {
+      console.log('[PresentationWidget] Rename cancelled or name unchanged.');
+      return; // No change or empty name
+    }
+
+    console.log(`[PresentationWidget] Attempting to rename library '${originalLibrary.name}' to '${newName}'`);
+    if (window.electronAPI && window.electronAPI.renameUserLibrary) {
+      try {
+        console.log(`[PresentationWidget] PRE-IPC CALL: originalLibrary.name = "${originalLibrary.name}" (type: ${typeof originalLibrary.name}), newName = "${newName}" (type: ${typeof newName})`);
+      const result = await window.electronAPI.renameUserLibrary(originalLibrary.name, newName);
+        console.log('[PresentationWidget] renameUserLibrary result:', result);
+        if (result.success) {
+          console.log(`[PresentationWidget] Library renamed from '${result.oldPath}' to '${result.newPath}'`);
+          fetchUserLibraries();
+        } else {
+          console.error('[PresentationWidget] Failed to rename library:', result.error);
+          // Revert optimistic UI update or inform user
+          setCurrentEditName(originalLibrary.name); // Revert name in case of error
+          openGenericModal({
+            title: 'Error Renaming Library',
+            message: `Could not rename library: ${result.error || 'Unknown error'}.`,
+            onSubmit: (_value: string) => {},
+          });
+        }
+      } catch (error) {
+        console.error('[PresentationWidget] Error calling renameUserLibrary:', error);
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        setCurrentEditName(originalLibrary.name); // Revert name in case of error
+        openGenericModal({
+          title: 'Error',
+          message: `An unexpected error occurred: ${errorMessage}`,
+          onSubmit: (_value: string) => {},
+        });
+      }
+    } else {
+      console.error('[PresentationWidget] electronAPI.renameUserLibrary is not available.');
+      setCurrentEditName(originalLibrary.name); // Revert name
+      openGenericModal({
+        title: 'Error',
+        message: 'Functionality to rename library is not available.',
+        onSubmit: (_value: string) => {},
+      });
+    }
+  };
+
+
+
+  const handleLibraryNameKeyDown = (event: React.KeyboardEvent<HTMLInputElement>, originalLibrary: Library) => {
+    if (event.key === 'Enter') {
+      handleRenameSubmit(originalLibrary, currentEditName);
+    } else if (event.key === 'Escape') {
+      setEditingLibraryId(null);
+      setCurrentEditName(''); // Or revert to originalLibrary.name if preferred
+    }
+  };
+
   // Effect to refresh libraries when lastRefreshTimestamp changes
   useEffect(() => {
     console.log(`[PresentationWidget] Detected refresh timestamp change: ${lastRefreshTimestamp}. Refreshing libraries...`);
@@ -114,6 +231,59 @@ const PresentationWidget: React.FC<PresentationWidgetProps> = ({ themeColors }) 
   // cuelists, selectedItemId, selectedItemType are now managed by useCuelistManager
   // storagePaths is now managed by useDataSync
 
+  // Moved and corrected handleDeleteLibrary
+  const handleDeleteLibrary = useCallback(async (libraryIdToDelete: string) => {
+    const libraryToDelete = uniqueLibraries.find(lib => lib.id === libraryIdToDelete);
+    if (!libraryToDelete) {
+      console.error('[PresentationWidget] Library to delete not found:', libraryIdToDelete);
+      openGenericModal({
+        title: 'Error',
+        message: 'Could not find the library to delete.',
+        onSubmit: (_value?: string) => {}, // Can be a no-op for error modals
+      });
+      return;
+    }
+
+    // Directly proceed with deletion logic (confirmation modal removed)
+    if (window.electronAPI && window.electronAPI.deleteUserLibrary) {
+      try {
+        console.log(`[PresentationWidget] Attempting to delete library '${libraryToDelete.name}' (ID: ${libraryToDelete.id})`);
+        const result = await window.electronAPI.deleteUserLibrary(libraryToDelete.name);
+        if (result.success) {
+          console.log(`[PresentationWidget] Library '${libraryToDelete.name}' deleted successfully.`);
+          fetchUserLibraries();
+          // If the deleted library was the one selected, clear selections
+          if (selectedItemId === libraryIdToDelete && selectedItemType === 'library') {
+            handleSelectLibraryOrCuelist(null, null); // Clear library/cuelist selection
+            handleSelectCue(null); // Clear cue selection
+          }
+        } else {
+          console.error(`[PresentationWidget] Failed to delete library '${libraryToDelete.name}':`, result.error);
+          openGenericModal({
+            title: 'Error Deleting Library',
+            message: `Could not delete library: ${result.error || 'Unknown error'}.`,
+            onSubmit: (_v?: string) => {}, // No-op for error modal
+          });
+        }
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        console.error(`[PresentationWidget] An unexpected error occurred during library deletion:`, errorMessage);
+        openGenericModal({
+          title: 'Error',
+          message: `An unexpected error occurred: ${errorMessage}`,
+          onSubmit: (_v?: string) => {}, // No-op for error modal
+        });
+      }
+    } else {
+      console.error('[PresentationWidget] electronAPI.deleteUserLibrary is not available.');
+      openGenericModal({
+        title: 'Error',
+        message: 'Delete functionality is not available.',
+        onSubmit: (_v?: string) => {}, // No-op for error modal
+      });
+    }
+  }, [uniqueLibraries, fetchUserLibraries, openGenericModal, selectedItemId, selectedItemType, handleSelectLibraryOrCuelist, handleSelectCue]);
+
   // Handler for the 'Show' (eye) icon click
   const handleShowViewClick = useCallback(() => {
     console.log('Show view icon clicked - returning to main PresentationWidget view.');
@@ -143,6 +313,36 @@ const PresentationWidget: React.FC<PresentationWidgetProps> = ({ themeColors }) 
     handleModalInputChange: handleAddItemModalInputChange,
     parentLibraryId: addItemModalParentLibraryId, // This is the parentLibraryId from the modal hook
   } = useAddItemModals({ selectedItemTypeForCue: selectedItemType });
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      const activeElement = document.activeElement;
+      const isInputFocused = activeElement && 
+                             (activeElement.tagName === 'INPUT' || 
+                              activeElement.tagName === 'TEXTAREA' || 
+                              activeElement.hasAttribute('contenteditable'));
+
+      // If an input is focused, and it's the specific library name input being edited, allow default key behavior.
+      if (isInputFocused && editingLibraryId && activeElement?.id === `library-name-input-${editingLibraryId}`) {
+        return;
+      }
+      // If any other input/editable area is focused, don't trigger global library delete.
+      if (isInputFocused) {
+          return;
+      }
+
+      if ((event.key === 'Delete' || event.key === 'Backspace') && selectedItemId && selectedItemType === 'library') {
+        event.preventDefault(); // Prevent default browser action (e.g., back navigation on Backspace)
+        console.log(`[PresentationWidget] Delete/Backspace key pressed for library ID: ${selectedItemId}`);
+        handleDeleteLibrary(selectedItemId);
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [selectedItemId, selectedItemType, handleDeleteLibrary, editingLibraryId]); // handleDeleteLibrary is stable due to useCallback
 
   const handleModalSubmitNewLibrary = useCallback(async (newLibraryName: string) => {
     if (newLibraryName && newLibraryName.trim() !== '') {
@@ -410,7 +610,38 @@ const PresentationWidget: React.FC<PresentationWidgetProps> = ({ themeColors }) 
             onSelectItem={handleSelectLibraryOrCuelist} // Use the hook's version directly
             itemsForCueList={itemsForCueListDisplay} // Content for the right panel (SelectedItemContentView)
             cueListItemType={cueListItemTypeDisplay} // Type of items in the right panel
-            onAddLibrary={() => console.log('Add Library clicked - placeholder')} // Placeholder for now
+            onCreateNewLibrary={handleCreateNewLibrary} // This is handleAddNewUserLibrary from useLibraryManager
+            onRenameLibrarySubmit={(libraryId: string, newName: string) => {
+            console.log(`[PresentationWidget] onRenameLibrarySubmit adapter called. Library ID: ${libraryId}, New Name: '${newName}'`);
+              const libraryToRename = uniqueLibraries.find(lib => lib.id === libraryId);
+              if (libraryToRename) {
+                // handleRenameSubmit from useLibraryManager is assumed to use its internal
+                // currentEditName state, which should have been updated by onLibraryNameChange.
+                // The newName param here is part of the prop signature but not directly passed to this specific hook handler.
+                handleRenameSubmit(libraryToRename, newName);
+              }
+            }}
+            editingLibraryId={editingLibraryId} // from useLibraryManager
+            currentEditName={currentEditName} // from useLibraryManager
+            onLibraryDoubleClick={(libraryId: string, currentName: string) => {
+              const libraryToEdit = uniqueLibraries.find(lib => lib.id === libraryId);
+              if (libraryToEdit) {
+                // handleLibraryDoubleClick from useLibraryManager expects a Library object
+                // It will set editingLibraryId and currentEditName internally
+                handleLibraryDoubleClick(libraryToEdit);
+              }
+            }}
+            onLibraryNameChange={(newName: string) => {
+              // handleLibraryNameChange from useLibraryManager expects a ChangeEvent
+              handleLibraryNameChange({ target: { value: newName } } as React.ChangeEvent<HTMLInputElement>);
+            }}
+            onLibraryNameKeyDown={(event: React.KeyboardEvent<HTMLInputElement>, libraryId: string) => {
+              const libraryToEdit = uniqueLibraries.find(lib => lib.id === libraryId);
+              if (libraryToEdit) {
+                // handleLibraryNameKeyDown from useLibraryManager expects a Library object
+                handleLibraryNameKeyDown(event, libraryToEdit);
+              }
+            }}
             onAddCuelist={() => { // For CuelistsSection
               if (selectedItemType === 'library' && selectedItemId) {
                 openNewCuelistModal(selectedItemId);
@@ -528,7 +759,7 @@ const PresentationWidget: React.FC<PresentationWidgetProps> = ({ themeColors }) 
   // rndItemStyleDefault and gridItemContentStyle have been moved to DraggableResizablePanel.tsx
 
   return (
-    <div style={widgetWrapperStyle}>
+    <div style={widgetWrapperStyle}> {/* This div assumes widgetWrapperStyle is defined before the return statement */}
       {isAddItemModalOpen && (
         <InputModal
           isOpen={isAddItemModalOpen}
@@ -541,7 +772,7 @@ const PresentationWidget: React.FC<PresentationWidgetProps> = ({ themeColors }) 
               if (value.trim() !== '') {
                 submitNewCuelist(value.trim(), addItemModalParentLibraryId);
               }
-            } else if (addItemModalMode === 'cue' && selectedItemId) { // Ensure selectedItemId for cue context
+            } else if (addItemModalMode === 'cue' && selectedItemId) {
               if (value.trim() !== '') {
                 handleAddCueToCuelist(selectedItemId, value.trim());
               }
@@ -562,7 +793,7 @@ const PresentationWidget: React.FC<PresentationWidgetProps> = ({ themeColors }) 
             if (genericModalProps && genericModalProps.onSubmit) {
               genericModalProps.onSubmit(value);
             }
-            closeGenericModal(); // Ensure modal closes after submit
+            closeGenericModal();
           }}
           onClose={() => {
             if (genericModalProps && genericModalProps.onCancel) {
@@ -578,45 +809,6 @@ const PresentationWidget: React.FC<PresentationWidgetProps> = ({ themeColors }) 
         onEditClick={handleEditViewClick} 
       />
 
-      {/* Library Display Section */}
-      <div style={{ position: 'absolute', top: '50px', left: '10px', zIndex: 9999, background: 'rgba(0,0,0,0.75)', color: 'white', padding: '10px', borderRadius: '5px', fontSize: '12px', fontFamily: 'Arial, sans-serif', boxShadow: '0 2px 10px rgba(0,0,0,0.5)' }}>
-        <h4 style={{ marginTop: '0', marginBottom: '8px', borderBottom: '1px solid #555', paddingBottom: '5px' }}>Libraries</h4>
-        {librariesLoading && <p>Loading libraries...</p>}
-        {librariesError && <p style={{ color: '#ffdddd' }}>Error: {librariesError.message}</p>}
-        {!librariesLoading && !librariesError && (
-          <ul style={{ listStyle: 'none', paddingLeft: '0', margin: '0', maxHeight: '150px', overflowY: 'auto' }}>
-            {uniqueLibraries.length > 0 ? (
-              uniqueLibraries.map(lib => (
-                <li key={lib.id} style={{ marginBottom: '3px' }}>{lib.name} (Cues: {lib.cues?.length || 0})</li>
-              ))
-            ) : (
-              <li>No libraries found.</li>
-            )}
-          </ul>
-        )}
-        <button 
-          type="button" 
-          onClick={refreshLibraries} 
-          disabled={librariesLoading} 
-          style={{ 
-            marginTop: '10px', 
-            padding: '5px 10px', 
-            fontSize: '11px', 
-            backgroundColor: '#007bff',
-            color: 'white',
-            border: 'none',
-            borderRadius: '3px',
-            cursor: 'pointer'
-          }}
-          onMouseOver={(e) => (e.currentTarget.style.backgroundColor = '#0056b3')}
-          onMouseOut={(e) => (e.currentTarget.style.backgroundColor = '#007bff')}
-        >
-          Refresh Libraries
-        </button>
-        <div style={{ fontSize: '9px', color: '#aaa', marginTop: '5px' }}>
-          Last updated: {new Date(lastRefreshTimestamp).toLocaleTimeString()}
-        </div>
-      </div>
       {currentViewMode === 'slideEditor' ? (
         <SlideEditingView
           themeColors={themeColors}
@@ -626,6 +818,7 @@ const PresentationWidget: React.FC<PresentationWidgetProps> = ({ themeColors }) 
           onUpdateSlides={handleUpdateSlidesForCurrentCue}
         />
       ) : (
+        // This div assumes gridContainerStyle is defined before the return statement
         <div ref={gridContainerRef} style={gridContainerStyle}>
           {managedPanels.map(panel => (
             <DraggableResizablePanel

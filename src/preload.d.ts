@@ -27,6 +27,15 @@ export interface IElectronAPI {
   // List User Libraries
   listUserLibraries: () => Promise<{ success: boolean; data?: Library[]; error?: string }>;
 
+  // Create User Library
+  createUserLibrary: (libraryName?: string) => Promise<{ success: boolean; path?: string; error?: string }>;
+
+  // Rename User Library
+  renameUserLibrary: (oldName: string, newName: string) => Promise<{ success: boolean; oldPath?: string; newPath?: string; error?: string }>;
+
+  // Delete User Library
+  deleteUserLibrary: (libraryName: string) => Promise<{ success: boolean; error?: string }>;
+
   // General on listener
   on: (channel: string, listener: (event: IpcRendererEvent, ...args: any[]) => void) => () => void; // Returns cleanup fn
 

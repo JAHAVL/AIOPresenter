@@ -4,7 +4,8 @@ import type { DraggableEvent } from 'react-draggable';
 import type { ThemeColors } from '../theme/theme';
 import type { Library, Cuelist, PresentationFile, Cue, Slide, SlideElement, CueGroup } from '@customTypes/presentationSharedTypes';
 import { nanoid } from 'nanoid';
-import { getStoragePaths, createUserLibrary, type StoragePaths } from '../services/storageClient';
+import { getStoragePaths, createUserLibrary } from '../services/storageClient';
+import type { StoragePaths } from '@shared/types';
 import { requestUserInput } from '../services/inputClient';
 import { StorageChannel } from '@shared/ipcChannels';
 // Local ElectronWindow interface and declaration removed.
@@ -82,43 +83,66 @@ const PresentationWidget: React.FC<PresentationWidgetProps> = ({ themeColors }) 
     }
   };
   
-  const handleCreateNewLibrary = async () => {
-    console.log('[PresentationWidget] Attempting to create new library...');
-    if (window.electronAPI && window.electronAPI.createUserLibrary) {
-      try {
-        const result = await window.electronAPI.createUserLibrary(); // No name, backend defaults
-        console.log('[PresentationWidget] createUserLibrary result:', result);
-        if (result.success) {
-          console.log(`[PresentationWidget] New library created at: ${result.path}`);
-          refreshLibraries();
-        } else {
-          console.error('[PresentationWidget] Failed to create library:', result.error);
+  const handleCreateNewLibrary = () => {
+    console.log('[PresentationWidget] Prompting for new library name...');
+    openGenericModal({
+      title: 'Create New Library',
+      message: 'Enter a name for the new library:',
+      placeholder: 'Library Name',
+      defaultValue: '',
+      onSubmit: async (libraryNameFromModal: string) => {
+        if (!libraryNameFromModal || libraryNameFromModal.trim() === '') {
+          console.error('[PresentationWidget] Library name cannot be empty.');
           openGenericModal({
-            title: 'Error Creating Library',
-            message: `Could not create new library: ${result.error || 'Unknown error'}.`,
+            title: 'Invalid Name',
+            message: 'Library name cannot be empty.',
+            onSubmit: (_value: string) => {},
+          });
+          return;
+        }
+
+        console.log(`[PresentationWidget] Attempting to create new library with name: ${libraryNameFromModal}`);
+        if (window.electronAPI && window.electronAPI.createUserLibrary) {
+          try {
+            const result = await window.electronAPI.createUserLibrary(libraryNameFromModal.trim());
+            console.log('[PresentationWidget] createUserLibrary result:', result);
+            if (result.success) {
+              console.log(`[PresentationWidget] New library created at: ${result.path}`);
+              refreshLibraries(); // Refresh the list of libraries
+            } else {
+              console.error('[PresentationWidget] Failed to create library:', result.error);
+              openGenericModal({
+                title: 'Error Creating Library',
+                message: `Could not create new library: ${result.error || 'Unknown error'}.`,
+                onSubmit: (_value: string) => {},
+              });
+            }
+          } catch (error) {
+            console.error('[PresentationWidget] Error calling createUserLibrary:', error);
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            openGenericModal({
+              title: 'Error',
+              message: `An unexpected error occurred: ${errorMessage}`,
+              onSubmit: (_value: string) => {},
+            });
+          }
+        } else {
+          console.error('[PresentationWidget] electronAPI.createUserLibrary is not available.');
+          openGenericModal({
+            title: 'Error',
+            message: 'Functionality to create library is not available.',
             onSubmit: (_value: string) => {},
           });
         }
-      } catch (error) {
-        console.error('[PresentationWidget] Error calling createUserLibrary:', error);
-        const errorMessage = error instanceof Error ? error.message : String(error);
-        openGenericModal({
-          title: 'Error',
-          message: `An unexpected error occurred: ${errorMessage}`,
-          onSubmit: (_value: string) => {},
-        });
+      },
+      onCancel: () => {
+        console.log('[PresentationWidget] Create new library cancelled by user.');
       }
-    } else {
-      console.error('[PresentationWidget] electronAPI.createUserLibrary is not available.');
-      openGenericModal({
-        title: 'Error',
-        message: 'Functionality to create library is not available.',
-        onSubmit: (_value: string) => {},
-      });
-    }
+    });
   };
 
   const handleLibraryDoubleClick = (library: Library) => {
+    console.log('<<<<< PresentationWidget: handleLibraryDoubleClick CALLED >>>>>', { libraryName: library.name, libraryId: library.id });
     if (library.name === 'Media Library' || library.name === 'Default User Library') {
       openGenericModal({
         title: 'Rename Not Allowed',
@@ -136,6 +160,7 @@ const PresentationWidget: React.FC<PresentationWidgetProps> = ({ themeColors }) 
   };
 
   const handleRenameSubmit = async (originalLibrary: Library, newNameFromInput: string) => {
+    console.log('<<<<< NEW handleRenameSubmit VERSION JUNE 08 15:58 PM - ENTERED >>>>>', { originalLibraryName: originalLibrary.name, newNameFromInput });
     console.log('[DEBUG] handleRenameSubmit called with:', { originalLibrary, newNameFromInput, editingLibraryId });
     if (!editingLibraryId || !originalLibrary) {
       console.log('[DEBUG] Early return: editingLibraryId or originalLibrary is falsy');
@@ -155,7 +180,10 @@ const PresentationWidget: React.FC<PresentationWidgetProps> = ({ themeColors }) 
     if (window.electronAPI && window.electronAPI.renameUserLibrary) {
       try {
         console.log(`[PresentationWidget] PRE-IPC CALL: originalLibrary.path = "${originalLibrary.path}" (type: ${typeof originalLibrary.path}), newName = "${newName}" (type: ${typeof newName})`);
-        const result = await window.electronAPI.renameUserLibrary(originalLibrary.path, newName);
+        const pathParts = originalLibrary.path.split('/');
+        const oldFolderName = pathParts.pop() || originalLibrary.path; // Fallback to full path if split fails, though unlikely
+        console.log(`[PresentationWidget] Extracted oldFolderName: '${oldFolderName}' from path: '${originalLibrary.path}'`);
+        const result = await window.electronAPI.renameUserLibrary(oldFolderName, newName);
         console.log('[PresentationWidget] renameUserLibrary result:', result);
         if (result.success) {
           console.log(`[PresentationWidget] Library renamed from '${result.oldPath}' to '${result.newPath}'`);
@@ -181,12 +209,44 @@ const PresentationWidget: React.FC<PresentationWidgetProps> = ({ themeColors }) 
 
 
 
-  const handleLibraryNameKeyDown = (event: React.KeyboardEvent<HTMLInputElement>, originalLibrary: Library) => {
+  const handleLibraryNameKeyDown = (event: React.KeyboardEvent<HTMLInputElement>, libraryId: string) => {
+    console.log(`[PW handleLibraryNameKeyDown] ENTER KEY HANDLER with libraryId: ${libraryId}`);
+    
     if (event.key === 'Enter') {
-      handleRenameSubmit(originalLibrary, currentEditName);
+      // Find the library by ID
+      const originalLibrary = uniqueLibraries.find(lib => lib.id === libraryId);
+      
+      if (originalLibrary) {
+        console.log('[PW handleLibraryNameKeyDown] Found library:', originalLibrary);
+        console.log('[PW handleLibraryNameKeyDown] originalLibrary.path =', originalLibrary.path);
+        
+        // Extract the folder name from the path - this is what the StorageService expects
+        const pathParts = originalLibrary.path.split('/');
+        const folderName = pathParts[pathParts.length - 1];
+        console.log(`[PW handleLibraryNameKeyDown] Extracted folderName: '${folderName}' from path: '${originalLibrary.path}'`);
+        
+        // Create a modified library object with the folder name as the name
+        const modifiedLibrary = {
+          ...originalLibrary,
+          name: folderName // Use folder name instead of display name
+        };
+        
+        // Get the current edit name from the input field
+        const inputElement = document.querySelector(`input[data-library-id="${libraryId}"]`) as HTMLInputElement;
+        const newName = inputElement ? inputElement.value : '';
+        
+        console.log('[PW handleLibraryNameKeyDown] Calling handleRenameSubmit with:', { modifiedLibrary, newName });
+        handleRenameSubmit(modifiedLibrary, newName);
+      } else {
+        console.error(`[PW handleLibraryNameKeyDown] Could not find library with ID: ${libraryId}`);
+      }
     } else if (event.key === 'Escape') {
       setEditingLibraryId(null);
-      setCurrentEditName(''); // Or revert to originalLibrary.name if preferred
+      // Clear any edit in progress
+      const inputElement = document.querySelector(`input[data-library-id="${libraryId}"]`) as HTMLInputElement;
+      if (inputElement) {
+        inputElement.value = '';
+      }
     }
   };
 
@@ -692,8 +752,8 @@ const PresentationWidget: React.FC<PresentationWidgetProps> = ({ themeColors }) 
               if (window.electronAPI && window.electronAPI.renameUserLibrary) {
                 try {
                   // Try using just the library name first
-                  console.log(`[DEBUG] Calling renameUserLibrary with: oldName='${libraryToRename.name}', newName='${trimmedName}'`);
-                  const result = await window.electronAPI.renameUserLibrary(libraryToRename.name, trimmedName);
+                  console.log(`[DEBUG] Calling renameUserLibrary with: oldName='${folderName}', newName='${trimmedName}'`);
+                  const result = await window.electronAPI.renameUserLibrary(folderName, trimmedName);
                   console.log('[INFO] Rename result:', result);
                   
                   if (result.success) {
@@ -750,7 +810,13 @@ const PresentationWidget: React.FC<PresentationWidgetProps> = ({ themeColors }) 
                     
                     if (window.electronAPI && window.electronAPI.renameUserLibrary) {
                       try {
-                        const result = await window.electronAPI.renameUserLibrary(libToRename.path, trimmedName);
+                        // Extract the folder name from the path - this is what the StorageService expects
+                        const pathParts = libToRename.path.split('/');
+                        const folderName = pathParts[pathParts.length - 1];
+                        console.log(`[DEBUG] Extracted folderName: '${folderName}' from path: '${libToRename.path}'`);
+                        
+                        // Call renameUserLibrary with the folder name, not the full path
+                        const result = await window.electronAPI.renameUserLibrary(folderName, trimmedName);
                         console.log('[INFO] Rename result:', result);
                         
                         if (result.success) {

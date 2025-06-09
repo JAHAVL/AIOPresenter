@@ -1,14 +1,15 @@
 import React from 'react';
 import type { Slide } from '../../../types/presentationSharedTypes'; // Updated import
 import type { ThemeColors } from '../../../theme';
+import { MockSlide } from '../../../data/mockData/mockSlides';
 
 export interface SlideItemProps {
-  slide: Slide; // Changed from cue to slide
+  slide: Slide | MockSlide; // Support both Slide and MockSlide types
   themeColors: ThemeColors;
   isSelected: boolean;
   onSelect: (event: React.MouseEvent<HTMLDivElement>) => void; // Renamed from onClick
   onCueClick?: (event: React.MouseEvent<HTMLDivElement>) => void;
-  thumbnailUrl: string;
+  thumbnailUrl?: string;
   slideIndex: number; // For displaying the slide number
   minWidth: number; // Added minWidth prop
   cueId: string; // Added cueId prop
@@ -26,14 +27,19 @@ const SlideItem: React.FC<SlideItemProps> = ({
   cueId, // Added cueId
 }) => {
   const handleClick = (event: React.MouseEvent<HTMLDivElement>) => {
-    event.preventDefault(); // Prevent default scroll/navigation behavior
-    event.stopPropagation(); // Stop event from bubbling up to parent elements
-    event.nativeEvent.stopImmediatePropagation(); // Stop any other handlers from running
-    if (event.currentTarget) {
-      (event.currentTarget as HTMLElement).focus({ preventScroll: true }); // Explicitly prevent scroll on focus
-    }
-    console.log('SlideItem clicked, event details:', { type: event.type, target: event.target, currentTarget: event.currentTarget });
-    onSelect(event);         // Call the renamed onSelect passed from parent
+    // Prevent default behavior
+    event.preventDefault();
+    
+    // Log selection with modifier keys for debugging
+    console.log('SlideItem clicked:', { 
+      slideId: (slide as any).id,
+      shiftKey: event.shiftKey, 
+      ctrlKey: event.ctrlKey, 
+      metaKey: event.metaKey
+    });
+    
+    // Pass the original event directly to the parent
+    onSelect(event);
   };
 
   const handleCueClick = (event: React.MouseEvent<HTMLDivElement>) => {
@@ -46,83 +52,167 @@ const SlideItem: React.FC<SlideItemProps> = ({
     }
   };
 
+  // Define selection indicator styles
+  const selectionIndicatorStyle: React.CSSProperties = {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    width: '100%',
+    height: '100%',
+    pointerEvents: 'none',
+    borderRadius: '6px',
+    border: `3px solid ${themeColors.accentColor || '#4a90e2'}`,
+    boxShadow: `0 0 0 1px ${themeColors.panelBackground || '#333333'}, 0 0 12px ${themeColors.accentColor || '#4a90e2'}`,
+    opacity: isSelected ? 1 : 0,
+    transition: 'opacity 0.2s ease-in-out',
+    zIndex: 2,
+  };
+  
+  // Define corner indicator styles
+  const cornerIndicatorStyle: React.CSSProperties = {
+    position: 'absolute',
+    top: '-1px',
+    right: '-1px',
+    width: '24px',
+    height: '24px',
+    backgroundColor: themeColors.accentColor || '#4a90e2',
+    transform: 'rotate(45deg) translate(12px, -12px)',
+    opacity: isSelected ? 1 : 0,
+    transition: 'opacity 0.2s ease-in-out, transform 0.2s ease-in-out',
+    zIndex: 1,
+  };
+
   const itemStyle: React.CSSProperties = {
-    border: `2px solid ${isSelected ? themeColors.accentColor : themeColors.panelBorder || '#555555'}`, // Highlight if selected
-    backgroundColor: themeColors.panelBackground || '#333333', // Use panel background or a dark fallback
+    position: 'relative',
+    border: `1px solid ${themeColors.panelBorder || '#555555'}`,
+    backgroundColor: themeColors.panelBackground || '#333333',
     color: themeColors.textColor,
-    // padding: '10px', // Padding will be handled by content and label sections
-    // margin: '5px', // Grid gap will handle spacing
-    borderRadius: '4px',
+    borderRadius: '6px',
     cursor: 'pointer',
     textAlign: 'center',
-    minWidth: `${minWidth}px`, // Apply minWidth
-    // minHeight: '80px', // Removed to let aspectRatio fully control height
+    minWidth: `${minWidth}px`,
     display: 'flex',
     flexDirection: 'column',
-    // justifyContent: 'space-between', // No longer needed here, flexGrow handles it
-    alignItems: 'stretch', // To make content and label stretch width-wise
-    // aspectRatio: '16 / 9', // Moved to content area
-    overflow: 'hidden', // Prevent content spill
-    boxShadow: isSelected ? `0 0 8px ${themeColors.accentColor}` : 'none',
-    transition: 'border-color 0.2s ease-in-out, box-shadow 0.2s ease-in-out',
+    alignItems: 'stretch',
+    overflow: 'hidden',
+    boxShadow: isSelected ? `0 5px 15px rgba(0,0,0,0.3)` : '0 2px 5px rgba(0,0,0,0.2)',
+    transition: 'all 0.2s ease-in-out',
+    transform: isSelected ? 'translateY(-3px) scale(1.02)' : 'translateY(0) scale(1)',
   };
 
   return (
     <div
       style={itemStyle}
-      onClick={handleClick} // handleClick now calls onSelect
+      onClick={handleClick}
       role="button"
       tabIndex={0}
-      aria-label={`Select slide ${slide.name || 'Untitled Slide'}`}
+      aria-label={`Select slide ${(slide as MockSlide).name || 'Untitled Slide'}`}
+      aria-selected={isSelected}
     >
+      {/* Selection indicators */}
+      <div style={selectionIndicatorStyle} />
+      <div style={cornerIndicatorStyle} />
       <div style={{
         flexGrow: 1,
         display: 'flex',
         justifyContent: 'center',
         alignItems: 'center',
-        padding: '10px', // Padding for the content area
+        padding: '0', // Remove padding to maximize preview area
         overflow: 'hidden',
         aspectRatio: '16 / 9', // Apply aspect ratio here
-        backgroundColor: themeColors.widgetBackground || '#222222', // Use widgetBackground or a dark fallback
+        backgroundColor: (slide as MockSlide).backgroundColor || themeColors.widgetBackground || '#222222',
       }}>
         {thumbnailUrl ? (
           <img
             src={thumbnailUrl}
-            alt={slide.name || 'Slide thumbnail'}
+            alt={(slide as MockSlide).name || 'Slide thumbnail'}
             style={{ width: '100%', height: '100%', objectFit: 'cover' }}
           />
         ) : (
-          <div style={{ width: '100%', height: '100%', display: 'flex', justifyContent: 'center', alignItems: 'center', color: themeColors.textColor }}>
-            {/* For now, just display the slide ID or name. Later, this will render slide content. */}
-            <span style={{ fontSize: '0.9em', wordBreak: 'break-word' }}>
-              {slide.name || `Slide: ${slide.id.substring(0, 8)}...`}
+          <div style={{ 
+            width: '100%', 
+            height: '100%', 
+            display: 'flex', 
+            justifyContent: 'center', 
+            alignItems: 'center', 
+            color: (slide as MockSlide).textColor || themeColors.textColor,
+            padding: '15px',
+            boxSizing: 'border-box',
+            backgroundSize: 'cover',
+            backgroundPosition: 'center',
+          }}>
+            <span style={{ 
+              fontSize: '1.1em', 
+              fontWeight: 'bold',
+              textShadow: '0 1px 2px rgba(0,0,0,0.3)',
+              wordBreak: 'break-word' 
+            }}>
+              {(slide as MockSlide).content || (slide as MockSlide).name || `Slide ${slideIndex + 1}`}
             </span>
           </div>
         )}
       </div>
+      {/* Slide name */}
       <div 
         style={{
-          backgroundColor: themeColors.panelBorder || '#424242', // Consistent background for label
-          color: themeColors.textColor || '#FFFFFF', // Consistent text color for label
-          padding: '5px 8px',
-          fontSize: '0.75em',
-          textAlign: 'left',
-          width: '100%', // Ensure label spans the full width
-          boxSizing: 'border-box',
-          borderTop: `1px solid ${themeColors.panelBorder || '#555555'}`, 
-        }}
-        onClick={(e) => {
-          e.stopPropagation(); // Prevent the click from reaching the parent div
-          e.preventDefault();
-          handleCueClick(e);
+          padding: '8px',
+          fontSize: '12px',
+          fontWeight: 500,
+          color: themeColors.mutedText || '#aaaaaa', // Using mutedText instead of textSecondary
+          whiteSpace: 'nowrap',
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          borderTop: `1px solid ${themeColors.panelBorder || '#444444'}`,
+          backgroundColor: themeColors.secondaryPanelBackground || '#222222',
         }}
         role="button"
         tabIndex={0}
-        aria-label={`Navigate to cue for ${slide.name || 'Untitled Slide'}`}
+        aria-label={`Navigate to cue for ${(slide as MockSlide).name || 'Untitled Slide'}`}
+        onClick={handleCueClick}
       >
-        <p style={{ fontSize: '0.75em', wordBreak: 'break-word' }}>
-          {`${slideIndex + 1}. ${slide.name || 'Unnamed Slide'}`}
-        </p>
+        <div style={{ 
+          display: 'flex', 
+          alignItems: 'center',
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          whiteSpace: 'nowrap',
+          maxWidth: '85%'
+        }}>
+          <span style={{ 
+            backgroundColor: isSelected ? themeColors.accentColor : themeColors.panelBorder || '#555',
+            color: '#fff',
+            borderRadius: '50%',
+            width: '18px',
+            height: '18px',
+            display: 'inline-flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            marginRight: '6px',
+            fontSize: '0.7em',
+            fontWeight: 'bold'
+          }}>
+            {slideIndex + 1}
+          </span>
+          <span style={{ 
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap'
+          }}>
+            {(slide as MockSlide).name || 'Unnamed Slide'}
+          </span>
+        </div>
+        {(slide as MockSlide).notes && (
+          <div style={{
+            fontSize: '0.7em',
+            color: themeColors.mutedText || '#aaaaaa',
+            marginLeft: '4px',
+          }}>
+            <span role="img" aria-label="Notes" title="Has presenter notes">📝</span>
+          </div>
+        )}
       </div>
     </div>
   );

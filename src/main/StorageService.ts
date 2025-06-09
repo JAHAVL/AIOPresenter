@@ -1,100 +1,124 @@
 // AIOPRESENTER/src/main/StorageService.ts
-import os from 'os';
-import { app, BrowserWindow } from 'electron';
-import path from 'path';
-import fs from 'fs'; // Still needed for some synchronous checks and other file ops
-import chokidar, { FSWatcher } from 'chokidar'; // Added for robust watching
-import { PATH_CONFIG } from '@utils/pathconfig';
-import { StorageChannel, Cue, Cuelist, AIOPresentationContent, Slide, SlideElement, Library, PresentationFile } from '../shared/ipcChannels';
+// import os from 'os'; // Commented out as it appears unused in this file after refactor
+import { app, BrowserWindow, ipcMain } from 'electron';
+import * as fs from 'fs';
+import * as path from 'path';
+import * as chokidar from 'chokidar';
+import type { FSWatcher } from 'chokidar';
+import { StorageChannel, AIOPresentationContent, Library, ListUserLibrariesResponse } from '../shared/ipcChannels';
+import type { Cue, Cuelist, Slide, SlideElement, PresentationFile } from '@shared/types';
+// import { PATH_CONFIG } from '@utils/pathconfig'; // Path logic and PATH_CONFIG usage moved to PathService
 import { v4 as uuidv4 } from 'uuid';
+import { PathService } from './services/storage/PathService';
+import { listUserLibraries as listUserLibrariesAction } from './services/storage/libraryActions/listUserLibraries';
+import { createUserLibrary as createUserLibraryAction } from './services/storage/libraryActions/createUserLibrary';
+import { deleteUserLibrary as deleteUserLibraryAction } from './services/storage/libraryActions/deleteUserLibrary';
+import { renameUserLibrary as renameUserLibraryAction } from './services/storage/libraryActions/renameUserLibrary';
+import { PATH_CONFIG } from '../utils/pathconfig';
 
 class StorageService {
-  private documentsBasePath: string;
-  private globalLibrariesRootPath: string = '';
-  private presentationLibraryPath: string = '';
-  private defaultUserLibraryPath: string = '';
-  private mediaLibraryPath: string = '';
-  private userProjectsRootPath: string = '';
-  private libraryWatcher: FSWatcher | null = null; // Changed type
+  private pathService: PathService; // Manages all application paths
+  // Path properties (documentsBasePath, globalLibrariesRootPath, etc.) are now managed by PathService
+  private libraryWatcher: FSWatcher | null = null; // For watching library file changes
 
   constructor(customLibrariesPath?: string) {
     console.log('[SS_DEBUG_MAIN] StorageService Constructor: Called.');
-    this.documentsBasePath = app.getPath('documents');
-    console.log(`[SS_DEBUG_MAIN] StorageService Constructor: Documents base path set to: ${this.documentsBasePath}`);
+    this.pathService = new PathService(customLibrariesPath);
+    console.log('[SS_DEBUG_MAIN] StorageService Constructor: PathService initialized.');
 
-    const aioAppBasePathForProjects = path.join(this.documentsBasePath, PATH_CONFIG.AIO_DIR_NAME, PATH_CONFIG.APP_DIR_NAME);
-    this.userProjectsRootPath = path.join(aioAppBasePathForProjects, PATH_CONFIG.PROJECTS_DIR_NAME);
-    console.log(`[SS_DEBUG_MAIN] StorageService Constructor: User projects root path set to: ${this.userProjectsRootPath}`);
+    // Path initialization and logging are now handled within PathService.
+    // ensureAppDirectoriesExist is also called within PathService constructor.
 
-    if (customLibrariesPath) {
-      console.log(`[SS_DEBUG_MAIN] StorageService Constructor: Using custom library path: ${customLibrariesPath}`);
-      this.globalLibrariesRootPath = customLibrariesPath;
-      this.presentationLibraryPath = customLibrariesPath;
-      this.defaultUserLibraryPath = path.join(customLibrariesPath, PATH_CONFIG.DEFAULT_LIBRARY_DIR_NAME);
-      this.mediaLibraryPath = path.join(customLibrariesPath, PATH_CONFIG.MEDIA_LIBRARY_DIR_NAME);
-    } else {
-      console.log("[SS_DEBUG_MAIN] StorageService Constructor: Using user's preferred library path structure.");
-      const userPreferredLibrariesBase = path.join(this.documentsBasePath, PATH_CONFIG.AIO_DIR_NAME, PATH_CONFIG.APP_DIR_NAME_MIXED_CASE_FOR_LIBS);
-      this.presentationLibraryPath = path.join(userPreferredLibrariesBase, PATH_CONFIG.LIBRARIES_DIR_NAME);
-      this.globalLibrariesRootPath = this.presentationLibraryPath;
-      this.defaultUserLibraryPath = path.join(this.presentationLibraryPath, PATH_CONFIG.DEFAULT_LIBRARY_DIR_NAME);
-      this.mediaLibraryPath = path.join(this.presentationLibraryPath, PATH_CONFIG.MEDIA_LIBRARY_DIR_NAME);
-    }
+    this.registerIpcHandlers();
+    // initializeAsync will be called to set up watchers and other non-path async tasks.
+    this.initializeAsync(); 
+  }
 
-    console.log('[SS_DEBUG_MAIN] StorageService Constructor: Final Initialized Paths:');
-    console.log(`  Documents Base: ${this.documentsBasePath}`);
-    console.log(`  Global Libraries Root (effective): ${this.globalLibrariesRootPath}`);
-    console.log(`  User Projects Root: ${this.userProjectsRootPath}`);
-    console.log(`  Presentation Library (actual root for libraries): ${this.presentationLibraryPath}`);
-    console.log(`  Default User Library: ${this.defaultUserLibraryPath}`);
-    console.log(`  Media Library: ${this.mediaLibraryPath}`);
-
-    this.initializeAsync();
+  /**
+   * Registers all IPC handlers for storage-related operations
+   */
+  private registerIpcHandlers(): void {
+    console.log('[SS_DEBUG_MAIN] registerIpcHandlers: Registering IPC handlers for StorageService.');
+    ipcMain.handle(StorageChannel.LIST_USER_LIBRARIES, this.listUserLibraries.bind(this));
+    ipcMain.handle(StorageChannel.CREATE_USER_LIBRARY, (event, libraryName) => this.createUserLibrary(libraryName));
+    ipcMain.handle(StorageChannel.RENAME_USER_LIBRARY, (event, oldName, newName) => this.renameUserLibrary(oldName, newName));
+    ipcMain.handle(StorageChannel.DELETE_USER_LIBRARY, (event, libraryName) => this.deleteUserLibrary(libraryName));
+    ipcMain.handle(StorageChannel.GET_STORAGE_PATHS, this.getStoragePaths.bind(this));
+    
+    // Add handler for force refreshing presentation files
+    ipcMain.handle(StorageChannel.FORCE_REFRESH_PRESENTATION_FILES, (event, libraryPath) => {
+      console.log(`[SS_DEBUG_MAIN] Force refresh presentation files requested for library: ${libraryPath}`);
+      this.notifyAllWindowsAboutPresentationFileChange(libraryPath);
+      return { success: true };
+    });
+    ipcMain.handle(StorageChannel.LIST_PRESENTATION_FILES, (event, libraryPath) => this.listPresentationFiles(libraryPath));
+    ipcMain.handle(StorageChannel.CREATE_PRESENTATION_FILE, (event, libraryPath, fileName) => this.createPresentationFile(libraryPath, fileName));
+    ipcMain.handle(StorageChannel.OPEN_PRESENTATION_FILE, (event, filePath) => this.openPresentationFile(filePath));
+    ipcMain.handle(StorageChannel.SAVE_PRESENTATION_FILE, (event, filePath, content) => this.savePresentationFile(filePath, content));
+    ipcMain.handle(StorageChannel.DELETE_PRESENTATION_FILE, (event, filePath) => this.deletePresentationFile(filePath));
+    
+    console.log('[SS_DEBUG_MAIN] registerIpcHandlers: Successfully registered all IPC handlers.');
   }
 
   private async initializeAsync(): Promise<void> {
-    console.log('[SS_DEBUG_MAIN] initializeAsync: Starting initialization...');
+    console.log('[SS_DEBUG_MAIN] initializeAsync: Starting non-path related asynchronous initialization...');
+    // ensureAppDirectoriesExist() logic is now handled by the PathService constructor.
+    console.log('[SS_DEBUG_MAIN] initializeAsync: Path initialization and directory creation handled by PathService. Setting up library watcher.');
+    this.startWatchingLibrariesDirectory(); 
+  }
+
+  public getStoragePaths(): { success: boolean; paths?: Record<string, string>; error?: string } {
+    console.log('[SS_DEBUG_MAIN] getStoragePaths: Called.');
     try {
-      await this.ensureAppDirectoriesExist();
-      console.log('[SS_DEBUG_MAIN] initializeAsync: All required directories ensured.');
+      const paths = {
+        documentsBasePath: this.pathService.getDocumentsBasePath(),
+        globalLibrariesRootPath: this.pathService.getGlobalLibrariesRootPath(),
+        presentationLibraryPath: this.pathService.getPresentationLibraryPath(),
+        defaultUserLibraryPath: this.pathService.getDefaultUserLibraryPath(),
+        mediaLibraryPath: this.pathService.getMediaLibraryPath(),
+        userProjectsRootPath: this.pathService.getUserProjectsRootPath(),
+        appSupportPath: this.pathService.getAppSupportPath(),
+        logsPath: this.pathService.getLogsPath(),
+        settingsPath: this.pathService.getSettingsPath(),
+      };
+      return { success: true, paths };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error('[SS_DEBUG_MAIN] getStoragePaths: Error retrieving paths:', errorMessage);
+      return { success: false, error: errorMessage };
+    }
+  }
+
+  // private async directoryExists(checkPath: string): Promise<boolean> { // Method moved to PathService
+  // }
+
+  public async updateLibrariesPath(newPath: string): Promise<void> {
+    console.log(`[SS_DEBUG_MAIN] updateLibrariesPath: Attempting to update libraries path to: ${newPath} via PathService.`);
+    try {
+      await this.pathService.updateGlobalLibrariesRootPath(newPath); // This will update all related paths in PathService
+      console.log('[SS_DEBUG_MAIN] updateLibrariesPath: PathService successfully updated paths.');
+      // Log paths using getters from PathService
+      console.log(`  Global Libraries Root (effective): ${this.pathService.getGlobalLibrariesRootPath()}`);
+      console.log(`  Presentation Library (actual root for libraries): ${this.pathService.getPresentationLibraryPath()}`);
+      console.log(`  Default User Library: ${this.pathService.getDefaultUserLibraryPath()}`);
+      console.log(`  Media Library: ${this.pathService.getMediaLibraryPath()}`);
+
+      console.log('[SS_DEBUG_MAIN] updateLibrariesPath: Re-initializing watcher due to path change.');
+      if (this.libraryWatcher) {
+        this.stopWatchingLibrariesDirectory(); 
+      }
+      // initializeAsync primarily starts the watcher. PathService handles directory creation.
+      await this.initializeAsync(); 
+      console.log('[SS_DEBUG_MAIN] updateLibrariesPath: Watcher re-initialization process triggered.');
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      console.error('[SS_DEBUG_MAIN] initializeAsync: Error during initialization:', errorMessage);
-      throw new Error(`Initialization failed: ${errorMessage}`);
+      console.error(`[SS_DEBUG_MAIN] updateLibrariesPath: Error updating libraries path: ${errorMessage}`);
+      throw new Error(`Failed to update libraries path: ${errorMessage}`);
     }
-    console.log('[SS_DEBUG_MAIN] initializeAsync: Initialization complete. Setting up library watcher.');
-    this.startWatchingLibrariesDirectory();
-  }
-
-  private async directoryExists(checkPath: string): Promise<boolean> {
-    // console.log(`[SS_DEBUG_MAIN] directoryExists: Checking path: ${checkPath}`);
-    try {
-      await fs.promises.access(checkPath, fs.constants.F_OK);
-      // console.log(`[SS_DEBUG_MAIN] directoryExists: Path exists: ${checkPath}`);
-      return true;
-    } catch {
-      // console.log(`[SS_DEBUG_MAIN] directoryExists: Path does NOT exist: ${checkPath}`);
-      return false;
-    }
-  }
-
-  public updateLibrariesPath(newPath: string): void {
-    console.log(`[SS_DEBUG_MAIN] updateLibrariesPath: Updating libraries path to: ${newPath}`);
-    this.globalLibrariesRootPath = newPath;
-    this.presentationLibraryPath = newPath;
-    this.defaultUserLibraryPath = path.join(newPath, PATH_CONFIG.DEFAULT_LIBRARY_DIR_NAME);
-    this.mediaLibraryPath = path.join(newPath, PATH_CONFIG.MEDIA_LIBRARY_DIR_NAME);
-
-    console.log('[SS_DEBUG_MAIN] updateLibrariesPath: Paths updated.');
-    console.log(`  Global Libraries Root (effective): ${this.globalLibrariesRootPath}`);
-    console.log(`  Presentation Library (actual root for libraries): ${this.presentationLibraryPath}`);
-    console.log(`  Default User Library: ${this.defaultUserLibraryPath}`);
-    console.log(`  Media Library: ${this.mediaLibraryPath}`);
-    this.initializeAsync(); // Re-initialize to ensure directories and watcher are set for the new path
   }
 
   public async saveCueFile(libraryName: string, cueName: string, cueData: Cue): Promise<{ success: boolean; path?: string; error?: string }> {
-    const libraryPath = path.join(this.presentationLibraryPath, libraryName);
+    const libraryPath = path.join(this.pathService.getPresentationLibraryPath(), libraryName);
     console.log(`[SS_DEBUG_MAIN] saveCueFile: Attempting to save cue '${cueName}' in library '${libraryName}' at path: ${libraryPath}`);
     try {
       await this.ensureDirectoryExists(libraryPath);
@@ -133,56 +157,39 @@ class StorageService {
     }
   }
 
-  private async ensureDirectoryExists(dirPath: string): Promise<void> {
-    // console.log(`[SS_DEBUG_MAIN] ensureDirectoryExists: Ensuring directory: ${dirPath}`);
-    try {
-      await fs.promises.mkdir(dirPath, { recursive: true });
-      // console.log(`[SS_DEBUG_MAIN] ensureDirectoryExists: Successfully ensured directory (created if didn't exist): ${dirPath}`);
-    } catch (error: unknown) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      console.error(`[SS_DEBUG_MAIN] ensureDirectoryExists: Failed to ensure directory ${dirPath}:`, errorMessage);
-      throw new Error(`Failed to ensure directory ${dirPath}: ${errorMessage}`);
-    }
-  }
+  // private async ensureDirectoryExists(dirPath: string): Promise<void> { // Method moved to PathService
+  // }
 
-  private async ensureAppDirectoriesExist(): Promise<void> {
-    console.log('[SS_DEBUG_MAIN] ensureAppDirectoriesExist: Ensuring application directories exist.');
-    const aioAppBasePath = path.join(this.documentsBasePath, PATH_CONFIG.AIO_DIR_NAME, PATH_CONFIG.APP_DIR_NAME);
-    
-    await this.ensureDirectoryExists(aioAppBasePath);
-    console.log(`[SS_DEBUG_MAIN] ensureAppDirectoriesExist: Ensured AIO App Base Path: ${aioAppBasePath}`);
-    await this.ensureDirectoryExists(this.presentationLibraryPath);
-    console.log(`[SS_DEBUG_MAIN] ensureAppDirectoriesExist: Ensured Presentation Library Path: ${this.presentationLibraryPath}`);
-    await this.ensureDirectoryExists(this.defaultUserLibraryPath);
-    console.log(`[SS_DEBUG_MAIN] ensureAppDirectoriesExist: Ensured Default User Library Path: ${this.defaultUserLibraryPath}`);
-    await this.ensureDirectoryExists(this.mediaLibraryPath);
-    console.log(`[SS_DEBUG_MAIN] ensureAppDirectoriesExist: Ensured Media Library Path: ${this.mediaLibraryPath}`);
-    await this.ensureDirectoryExists(this.userProjectsRootPath);
-    console.log(`[SS_DEBUG_MAIN] ensureAppDirectoriesExist: Ensured User Projects Root Path: ${this.userProjectsRootPath}`);
-    console.log('[SS_DEBUG_MAIN] ensureAppDirectoriesExist: Application directory structure ensured.');
-  }
+  // private async ensureAppDirectoriesExist(): Promise<void> { // Method moved to PathService (called in its constructor)
+  // }
 
   public getGlobalLibrariesRoot(): string {
-    return this.globalLibrariesRootPath;
+    return this.pathService.getGlobalLibrariesRootPath();
   }
 
   public getUserProjectsRootPath(): string {
-    return this.userProjectsRootPath;
+    return this.pathService.getUserProjectsRootPath();
   }
 
   public getPresentationLibraryPath(): string {
-    return this.presentationLibraryPath;
+    return this.pathService.getPresentationLibraryPath();
   }
 
   public async listUserLibraryFolders(): Promise<string[]> {
-    console.log(`[SS_DEBUG_MAIN] listUserLibraryFolders: Called for path: ${this.presentationLibraryPath}`);
-    if (!this.presentationLibraryPath || !(await this.directoryExists(this.presentationLibraryPath))) {
-      console.warn('[SS_DEBUG_MAIN] listUserLibraryFolders: Presentation library path does not exist or is not set. Returning empty array.');
+    const presentationPath = this.pathService.getPresentationLibraryPath();
+    console.log(`[SS_DEBUG_MAIN] listUserLibraryFolders: Called for path: ${presentationPath}`);
+    
+    try {
+      await fs.promises.stat(presentationPath); // Check if path exists and is accessible
+    } catch (statError: unknown) {
+      // If stat fails (e.g., path doesn't exist), log and return empty array
+      const errMessage = statError instanceof Error ? statError.message : String(statError);
+      console.warn(`[SS_DEBUG_MAIN] listUserLibraryFolders: Presentation library path '${presentationPath}' does not exist or is not accessible: ${errMessage}. Returning empty array.`);
       return [];
     }
 
     try {
-      const entries = await fs.promises.readdir(this.presentationLibraryPath, { withFileTypes: true });
+      const entries = await fs.promises.readdir(presentationPath, { withFileTypes: true });
       const libraryFolders = entries
         .filter(dirent => dirent.isDirectory())
         .map(dirent => dirent.name);
@@ -205,341 +212,230 @@ class StorageService {
     return Promise.resolve([]);
   }
 
+  /**
+   * Notifies all open windows about presentation file changes in a specific library
+   * @param libraryDir The library directory path where the change occurred
+   */
+  private notifyAllWindowsAboutPresentationFileChange(libraryDir: string): void {
+    console.log(`[SS_DEBUG_MAIN] Notifying all windows about presentation file change in: ${libraryDir}`);
+    
+    BrowserWindow.getAllWindows().forEach((win) => {
+      if (win && win.webContents && !win.webContents.isDestroyed()) {
+        win.webContents.send(StorageChannel.PRESENTATION_FILES_DID_CHANGE, { libraryPath: libraryDir });
+        win.webContents.send('storage:presentation-files-did-change', { libraryPath: libraryDir });
+        console.log(`[SS_DEBUG_MAIN] IPC event sent to window ${win.id} on channel: ${StorageChannel.PRESENTATION_FILES_DID_CHANGE}`);
+      }
+    });
+  }
+
+  private notifyAllWindowsAboutLibraryChange(libraryName: string, itemPath: string, eventType: string): void {
+    console.log(`[SS_DEBUG_MAIN] Notifying all windows about library change. Library: ${libraryName}, Item: ${itemPath}, Event: ${eventType}`);
+    BrowserWindow.getAllWindows().forEach((win) => {
+      if (win && win.webContents && !win.webContents.isDestroyed()) {
+        win.webContents.send(StorageChannel.LIBRARIES_DID_CHANGE, { libraryName, itemPath, eventType });
+        console.log(`[SS_DEBUG_MAIN] IPC event sent to window ${win.id} on channel: ${StorageChannel.LIBRARIES_DID_CHANGE}`);
+      }
+    });
+  }
+
+  private notifyAllWindowsAboutLibraryListChange(): void {
+    console.log('[SS_DEBUG_MAIN] Notifying all windows about library list change.');
+    BrowserWindow.getAllWindows().forEach((win) => {
+      if (win && win.webContents && !win.webContents.isDestroyed()) {
+        win.webContents.send(StorageChannel.LIBRARIES_DID_CHANGE);
+        console.log(`[SS_DEBUG_MAIN] IPC event sent to window ${win.id} on channel: ${StorageChannel.LIBRARIES_DID_CHANGE}`);
+      }
+    });
+  }
+
   private startWatchingLibrariesDirectory(): void {
     console.log('[SS_DEBUG_MAIN] startWatchingLibrariesDirectory: Attempting to start watcher.');
-    if (this.libraryWatcher) {
-      console.log('[SS_DEBUG_MAIN] startWatchingLibrariesDirectory: Existing watcher found. Closing it first.');
-      this.libraryWatcher.close();
-      this.libraryWatcher = null;
-    }
-
-    if (!this.presentationLibraryPath || !fs.existsSync(this.presentationLibraryPath)) {
-      console.error(`[SS_DEBUG_MAIN] startWatchingLibrariesDirectory: Cannot start watcher. Presentation library path does not exist ('${this.presentationLibraryPath}') or is not set.`);
-      return;
-    }
-
-    console.log(`[SS_DEBUG_MAIN] startWatchingLibrariesDirectory: Starting chokidar watcher on: ${this.presentationLibraryPath}`);
     try {
-      this.libraryWatcher = chokidar.watch(this.presentationLibraryPath, {
-        persistent: true,
-        ignored: /(^|[\/])\../, // ignore dotfiles
-        ignoreInitial: true, // Don't fire on existing files/folders
-        depth: 0, // Only watch direct children (folders) in the Libraries directory
-        awaitWriteFinish: {
-          stabilityThreshold: 2000,
-          pollInterval: 100
+      if (this.libraryWatcher) {
+        console.log('[SS_DEBUG_MAIN] startWatchingLibrariesDirectory: Watcher already exists, closing it first.');
+        this.libraryWatcher.close();
+        this.libraryWatcher = null; // Ensure it's nullified after closing
+      }
+
+      const watchPath = this.pathService.getGlobalLibrariesRootPath();
+      if (!watchPath || !fs.existsSync(watchPath)) {
+        console.warn(`[SS_DEBUG_MAIN] startWatchingLibrariesDirectory: Watch path does not exist or is not configured: ${watchPath}. Watcher not started.`);
+        return;
+      }
+
+      console.log(`[SS_DEBUG_MAIN] startWatchingLibrariesDirectory: Setting up watcher for path: ${watchPath}`);
+      this.libraryWatcher = chokidar.watch(
+        [
+          watchPath, // Watch the root for new library folders (addDir/unlinkDir)
+          path.join(watchPath, '**/*.AIOPresentation') // Watch for changes to presentation files
+        ],
+        {
+          persistent: true,
+          ignored: /(^|[\\/])\./, // Ignore dotfiles, corrected regex for cross-platform compatibility
+          ignoreInitial: true, // Prevent events for existing files/dirs upon startup
+          depth: 3,
+          awaitWriteFinish: {
+            stabilityThreshold: 500,
+            pollInterval: 100
+          },
         }
-      });
+      );
 
       this.libraryWatcher
-        .on('addDir', (eventPath: string) => {
-          console.log(`[SS_DEBUG_MAIN] Watcher Event (addDir): Path: ${eventPath}.`);
-          const channelToSend_addDir = StorageChannel.LIBRARIES_DID_CHANGE;
-          console.log(`[SS_DEBUG_MAIN] Watcher Event (addDir): Channel to send is '${channelToSend_addDir}'. Sending to all windows.`);
-          
-          // Only send events for changes in the libraries directory, not subdirectories
-          const libraryPath = this.presentationLibraryPath;
-          if (eventPath !== libraryPath && path.dirname(eventPath) === libraryPath) {
-            console.log(`[SS_DEBUG_MAIN] Detected new library folder: ${path.basename(eventPath)}`);
-            
-            BrowserWindow.getAllWindows().forEach((win) => {
-              if (win && win.webContents && !win.webContents.isDestroyed()) {
-                // Send with both the enum and direct string for maximum compatibility
-                win.webContents.send(StorageChannel.LIBRARIES_DID_CHANGE);
-                win.webContents.send('storage:presentation-libraries-did-change');
-                console.log(`[SS_DEBUG_MAIN] IPC event sent to window ${win.id} on channel: ${StorageChannel.LIBRARIES_DID_CHANGE}`);
-              }
-            });
-          } else {
-            console.log(`[SS_DEBUG_MAIN] Ignoring addDir event for path that is not a direct library folder: ${eventPath}`);
-          }
-        })
-        .on('unlinkDir', (eventPath: string) => {
-          console.log(`[SS_DEBUG_MAIN] Watcher Event (unlinkDir): Path: ${eventPath}.`);
-          const channelToSend_unlinkDir = StorageChannel.LIBRARIES_DID_CHANGE;
-          console.log(`[SS_DEBUG_MAIN] Watcher Event (unlinkDir): Channel to send is '${channelToSend_unlinkDir}'. Sending to all windows.`);
-          
-          // Only send events for changes in the libraries directory, not subdirectories
-          const libraryPath = this.presentationLibraryPath;
-          if (eventPath !== libraryPath && path.dirname(eventPath) === libraryPath) {
-            console.log(`[SS_DEBUG_MAIN] Detected removed library folder: ${path.basename(eventPath)}`);
-            
-            BrowserWindow.getAllWindows().forEach((win) => {
-              if (win && win.webContents && !win.webContents.isDestroyed()) {
-                // Send with both the enum and direct string for maximum compatibility
-                win.webContents.send(StorageChannel.LIBRARIES_DID_CHANGE);
-                win.webContents.send('storage:presentation-libraries-did-change');
-                console.log(`[SS_DEBUG_MAIN] IPC event sent to window ${win.id} on channel: ${StorageChannel.LIBRARIES_DID_CHANGE}`);
-              }
-            });
-          } else {
-            console.log(`[SS_DEBUG_MAIN] Ignoring unlinkDir event for path that is not a direct library folder: ${eventPath}`);
-          }
-        })
+        .on('add', (filePath: string) => this.handleFileChange(filePath, undefined, 'add'))
+        .on('change', (filePath: string, stats?: fs.Stats) => this.handleFileChange(filePath, stats, 'change'))
+        .on('unlink', (filePath: string) => this.handleFileChange(filePath, undefined, 'unlink'))
+        .on('addDir', (dirPath: string) => this.handleDirectoryChange(dirPath, 'addDir'))
+        .on('unlinkDir', (dirPath: string) => this.handleDirectoryChange(dirPath, 'unlinkDir'))
         .on('error', (error: unknown) => {
-          console.error(`[SS_DEBUG_MAIN] Watcher Error for ${this.presentationLibraryPath}:`, error);
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          console.error(`[SS_DEBUG_MAIN] Watcher error: ${errorMessage}`);
         })
         .on('ready', () => {
-            console.log(`[SS_DEBUG_MAIN] Chokidar watcher ready and initial scan complete for: ${this.presentationLibraryPath}`);
+          console.log(`[SS_DEBUG_MAIN] Chokidar watcher ready and initial scan complete for: ${watchPath}`);
         });
 
-      console.log(`[SS_DEBUG_MAIN] startWatchingLibrariesDirectory: Successfully initiated chokidar watcher on ${this.presentationLibraryPath}`);
+      console.log(`[SS_DEBUG_MAIN] startWatchingLibrariesDirectory: Successfully initiated chokidar watcher on ${watchPath}`);
     } catch (error) {
-      console.error(`[SS_DEBUG_MAIN] startWatchingLibrariesDirectory: Failed to start chokidar watching ${this.presentationLibraryPath}:`, error);
-    }
-  }
-
-  public getDefaultUserLibraryPath(): string {
-    return this.defaultUserLibraryPath;
-  }
-
-  public async createUserLibrary(libraryName?: string): Promise<{ success: boolean; path?: string; error?: string }> {
-    let targetLibraryName = libraryName;
-
-    if (!targetLibraryName || targetLibraryName.trim() === '') {
-      console.log('[SS_DEBUG_MAIN] createUserLibrary: No library name provided, using default "New Library" logic.');
-      let baseName = 'New Library';
-      let counter = 0;
-      targetLibraryName = baseName;
-      let potentialPath = path.join(this.presentationLibraryPath, targetLibraryName);
-      while (fs.existsSync(potentialPath)) { // fs.existsSync is synchronous
-        counter++;
-        targetLibraryName = `${baseName} ${counter}`;
-        potentialPath = path.join(this.presentationLibraryPath, targetLibraryName);
-      }
-      console.log(`[SS_DEBUG_MAIN] createUserLibrary: Determined available name: ${targetLibraryName}`);
-    }
-
-    console.log(`[SS_DEBUG_MAIN] createUserLibrary: Attempting to create library: ${targetLibraryName}`);
-    
-    // Basic sanitization for library name to prevent path traversal or invalid characters
-    const sanitizedLibraryName = targetLibraryName.replace(/[\/:*?"<>|]/g, '');
-    if (sanitizedLibraryName !== targetLibraryName) {
-      console.warn(`[SS_DEBUG_MAIN] createUserLibrary: Library name contained invalid characters. Original: '${targetLibraryName}', Sanitized: '${sanitizedLibraryName}'`);
-      // Optionally, you could reject here or proceed with sanitized name
-      // For now, let's inform and proceed with sanitized, but this might need stricter rules
-      if (!sanitizedLibraryName) {
-        return { success: false, error: 'Library name became empty after sanitization due to invalid characters.' };
-      }
-    }
-
-    const libraryPath = path.join(this.presentationLibraryPath, sanitizedLibraryName);
-    console.log(`[SS_DEBUG_MAIN] createUserLibrary: Target library path: ${libraryPath}`);
-
-    try {
-      // Check if it already exists (as a directory)
-      const stats = await fs.promises.stat(libraryPath).catch(() => null);
-      if (stats && stats.isDirectory()) {
-        console.warn(`[SS_DEBUG_MAIN] createUserLibrary: Library directory already exists: ${libraryPath}`);
-        return { success: false, error: `Library '${sanitizedLibraryName}' already exists.` };
-      }
-      // If it exists but is not a directory (e.g. a file), that's also an issue
-      if (stats && !stats.isDirectory()) {
-        console.error(`[SS_DEBUG_MAIN] createUserLibrary: A file with the name '${sanitizedLibraryName}' already exists at the library location.`);
-        return { success: false, error: `A file (not a directory) named '${sanitizedLibraryName}' already exists. Cannot create library.` };
-      }
-
-      await this.ensureDirectoryExists(libraryPath);
-      console.log(`[SS_DEBUG_MAIN] createUserLibrary: Successfully created or ensured library directory: ${libraryPath}`);
-      return { success: true, path: libraryPath };
-    } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      console.error(`[SS_DEBUG_MAIN] createUserLibrary: Error creating library directory ${libraryPath}:`, errorMessage);
-      return { success: false, error: `Failed to create library '${sanitizedLibraryName}': ${errorMessage}` };
+      console.error(`[SS_DEBUG_MAIN] startWatchingLibrariesDirectory: Failed to start chokidar watching ${this.pathService.getGlobalLibrariesRootPath()}:`, errorMessage);
     }
   }
 
-  public getMediaLibraryPath(): string {
-    return this.mediaLibraryPath;
-  }
-
-  public async setGlobalLibrariesRoot(newPath: string): Promise<void> {
-    console.log(`[SS_DEBUG_MAIN] setGlobalLibrariesRoot: Called with ${newPath}.`);
-    this.globalLibrariesRootPath = newPath;
-    this.presentationLibraryPath = this.globalLibrariesRootPath;
-    this.defaultUserLibraryPath = path.join(this.presentationLibraryPath, PATH_CONFIG.DEFAULT_LIBRARY_DIR_NAME);
-    this.mediaLibraryPath = path.join(this.presentationLibraryPath, PATH_CONFIG.MEDIA_LIBRARY_DIR_NAME);
-    console.log('[SS_DEBUG_MAIN] setGlobalLibrariesRoot: Global libraries root updated. Dependent paths recalculated.');
-    // Consider re-initializing or at least re-starting watcher if path changes significantly
-    await this.ensureDirectoryExists(this.presentationLibraryPath); // Ensure new path exists
-    this.startWatchingLibrariesDirectory(); // Restart watcher on new path
-  }
-
-  public setProjectsRoot(newPath: string): void {
-    console.log(`[SS_DEBUG_MAIN] setProjectsRoot: Called with ${newPath}.`);
-    this.userProjectsRootPath = newPath;
-    this.ensureDirectoryExists(this.userProjectsRootPath); // Ensure this exists, no watcher for projects root currently
-    console.log('[SS_DEBUG_MAIN] setProjectsRoot: User projects root updated.');
-  }
-
-  // This method is not async, kept for potential internal synchronous needs if any.
-  // However, ensureDirectoryExists (async) is generally preferred.
-  private createDirectoryIfNotExists(dirPath: string): void {
-    console.log(`[SS_DEBUG_MAIN] createDirectoryIfNotExists (SYNC): Attempting for path: ${dirPath}`);
-    try {
-      if (!fs.existsSync(dirPath)) {
-        fs.mkdirSync(dirPath, { recursive: true });
-        console.log(`[SS_DEBUG_MAIN] createDirectoryIfNotExists (SYNC): Created directory: ${dirPath}`);
-      } else {
-        console.log(`[SS_DEBUG_MAIN] createDirectoryIfNotExists (SYNC): Directory already exists: ${dirPath}`);
-      }
-    } catch (error) {
-      console.error(`[SS_DEBUG_MAIN] createDirectoryIfNotExists (SYNC): Failed to create directory ${dirPath}:`, error);
-    }
-  }
-
-  // This is an alias or older version, ensureDirectoryExists is the primary async method.
-  private async createDirectoryIfNotExistsAsync(dirPath: string): Promise<void> {
-    console.log(`[SS_DEBUG_MAIN] createDirectoryIfNotExistsAsync: Attempting for path: ${dirPath}`);
-    await this.ensureDirectoryExists(dirPath);
-  }
-
-  public stopWatchingLibrariesDirectory(): void {
-    console.log('[SS_DEBUG_MAIN] stopWatchingLibrariesDirectory: Called.');
+  private stopWatchingLibrariesDirectory(): void {
     if (this.libraryWatcher) {
-      console.log('[SS_DEBUG_MAIN] stopWatchingLibrariesDirectory: Closing chokidar library watcher.');
+      console.log('[SS_DEBUG_MAIN] stopWatchingLibrariesDirectory: Closing library watcher.');
       this.libraryWatcher.close();
       this.libraryWatcher = null;
-      console.log('[SS_DEBUG_MAIN] stopWatchingLibrariesDirectory: Chokidar library watcher closed and set to null.');
     } else {
-      console.log('[SS_DEBUG_MAIN] stopWatchingLibrariesDirectory: No active chokidar library watcher to stop.');
+      console.log('[SS_DEBUG_MAIN] stopWatchingLibrariesDirectory: No active library watcher to close.');
     }
   }
 
-  public async renameUserLibrary(oldName: string, newName: string): Promise<{ success: boolean; oldPath?: string; newPath?: string; error?: string }> {
-    console.log(`[SS_DEBUG_MAIN] renameUserLibrary: Attempting to rename library '${oldName}' to '${newName}'`);
-
-    if (!oldName || oldName.trim() === '' || !newName || newName.trim() === '') {
-      console.warn('[SS_DEBUG_MAIN] renameUserLibrary: Both old and new library names cannot be empty.');
-      return { success: false, error: 'Old and new library names must be provided.' };
-    }
-
-    // Handle case where oldName is a full path instead of just a folder name
-    let oldNameFolder = oldName;
-    if (oldName.includes('/')) {
-      // Extract just the folder name from the path
-      const pathParts = oldName.split('/');
-      oldNameFolder = pathParts[pathParts.length - 1];
-      console.log(`[SS_DEBUG_MAIN] renameUserLibrary: Extracted folder name '${oldNameFolder}' from full path '${oldName}'`);
-    }
-
-    // Prevent renaming of protected libraries
-    if (oldNameFolder === PATH_CONFIG.DEFAULT_LIBRARY_DIR_NAME || oldNameFolder === PATH_CONFIG.MEDIA_LIBRARY_DIR_NAME) {
-      console.warn(`[SS_DEBUG_MAIN] renameUserLibrary: Attempt to rename protected library '${oldNameFolder}'.`);
-      return { success: false, error: `Cannot rename protected library '${oldNameFolder}'.` };
-    }
-
-    // Sanitize the new name
-    const sanitizedNewName = newName.replace(/[\/\:*?"<>|]/g, '');
-    if (sanitizedNewName !== newName) {
-      console.warn(`[SS_DEBUG_MAIN] renameUserLibrary: New library name contained invalid characters. Original: '${newName}', Sanitized: '${sanitizedNewName}'`);
-      if (!sanitizedNewName) {
-        return { success: false, error: 'New library name became empty after sanitization due to invalid characters.' };
-      }
-    }
+  private handleFileChange(filePath: string, stats?: fs.Stats, eventType?: string): void {
+    const isPresentationFile = filePath.endsWith('.AIOPresentation');
+    const currentGlobalLibrariesRoot = this.pathService.getGlobalLibrariesRootPath();
+    const currentPresentationLibraryPath = this.pathService.getPresentationLibraryPath();
     
-    // Prevent renaming TO a protected name
-    if (sanitizedNewName === PATH_CONFIG.DEFAULT_LIBRARY_DIR_NAME || sanitizedNewName === PATH_CONFIG.MEDIA_LIBRARY_DIR_NAME) {
-      console.warn(`[SS_DEBUG_MAIN] renameUserLibrary: Attempt to rename to a protected name '${sanitizedNewName}'.`);
-      return { success: false, error: `Cannot rename library to a protected name '${sanitizedNewName}'.` };
+    if (!currentGlobalLibrariesRoot || !currentPresentationLibraryPath) {
+        console.warn('[SS_DEBUG_MAIN] handleFileChange: Root paths not configured. Skipping event.');
+        return;
     }
 
-    const oldLibraryPath = path.join(this.presentationLibraryPath, oldNameFolder);
-    const newLibraryPath = path.join(this.presentationLibraryPath, sanitizedNewName);
+    const relativePath = path.relative(currentGlobalLibrariesRoot, filePath);
+    const libraryName = relativePath.split(path.sep)[0];
 
-    console.log(`[SS_DEBUG_MAIN] renameUserLibrary: Old path: ${oldLibraryPath}`);
-    console.log(`[SS_DEBUG_MAIN] renameUserLibrary: New path: ${newLibraryPath}`);
+    console.log(`[SS_DEBUG_MAIN] handleFileChange: Event: ${eventType}, File: ${path.basename(filePath)}, Library: ${libraryName}, FullPath: ${filePath}, Stats: ${stats ? 'available' : 'N/A'}`);
 
-    if (oldLibraryPath === newLibraryPath) {
-      console.log('[SS_DEBUG_MAIN] renameUserLibrary: Old and new names are the same after sanitization. No action needed.');
-      return { success: true, oldPath: oldLibraryPath, newPath: newLibraryPath }; 
+    if (isPresentationFile) {
+      console.log(`[SS_DEBUG_MAIN] handleFileChange: Presentation file changed: ${path.basename(filePath)} in library ${libraryName}.`);
+      const directLibraryPath = path.join(currentPresentationLibraryPath, libraryName);
+      this.notifyAllWindowsAboutPresentationFileChange(directLibraryPath);
+    } else {
+      // Optionally handle other file types if necessary, or just log
+      console.log(`[SS_DEBUG_MAIN] handleFileChange: Non-presentation file changed: ${path.basename(filePath)} in library ${libraryName}.`);
+    }
+    // General notification for any file system activity affecting a library's content
+    this.notifyAllWindowsAboutLibraryChange(libraryName, filePath, eventType || 'unknown');
+  }
+
+  private handleDirectoryChange(dirPath: string, eventType: string): void {
+    console.log(`[SS_DEBUG_MAIN] handleDirectoryChange: Event: ${eventType}, Directory: ${path.basename(dirPath)}, FullPath: ${dirPath}`);
+    const currentGlobalLibrariesRoot = this.pathService.getGlobalLibrariesRootPath();
+
+    if (!currentGlobalLibrariesRoot) {
+        console.warn('[SS_DEBUG_MAIN] handleDirectoryChange: Global libraries root not configured. Skipping event.');
+        return;
     }
 
-    try {
-      const oldStats = await fs.promises.stat(oldLibraryPath).catch(() => null);
-      if (!oldStats || !oldStats.isDirectory()) {
-        console.error(`[SS_DEBUG_MAIN] renameUserLibrary: Source library directory '${oldName}' not found at ${oldLibraryPath} or is not a directory.`);
-        return { success: false, error: `Source library '${oldName}' not found or is not a directory.` };
-      }
-
-      const newStats = await fs.promises.stat(newLibraryPath).catch(() => null);
-      if (newStats) {
-        console.error(`[SS_DEBUG_MAIN] renameUserLibrary: Target library name '${sanitizedNewName}' already exists at ${newLibraryPath}.`);
-        return { success: false, error: `A library or file named '${sanitizedNewName}' already exists.` };
-      }
-
-      await fs.promises.rename(oldLibraryPath, newLibraryPath);
-      console.log(`[SS_DEBUG_MAIN] renameUserLibrary: Successfully renamed '${oldName}' to '${sanitizedNewName}'.`);
-      return { success: true, oldPath: oldLibraryPath, newPath: newLibraryPath };
-    } catch (error: unknown) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      console.error(`[SS_DEBUG_MAIN] renameUserLibrary: Error renaming library from ${oldLibraryPath} to ${newLibraryPath}:`, errorMessage);
-      return { success: false, error: `Failed to rename library '${oldName}' to '${sanitizedNewName}': ${errorMessage}` };
+    // Check if the changed directory is a direct child of the libraries root path (i.e., a library folder itself)
+    if (path.dirname(dirPath) === currentGlobalLibrariesRoot) {
+      const libraryName = path.basename(dirPath);
+      console.log(`[SS_DEBUG_MAIN] handleDirectoryChange: Library folder '${libraryName}' ${eventType === 'addDir' ? 'added' : 'removed'}.`);
+      this.notifyAllWindowsAboutLibraryListChange(); // Notify that the list of libraries has changed
+    } else {
+      // If it's a subdirectory within a library, or a file operation that chokidar reports as a dir event (sometimes happens)
+      const relativePath = path.relative(currentGlobalLibrariesRoot, dirPath);
+      const libraryName = relativePath.split(path.sep)[0];
+      console.log(`[SS_DEBUG_MAIN] handleDirectoryChange: Change in directory '${path.basename(dirPath)}' within library '${libraryName}'. Event: ${eventType}.`);
+      // Notify about specific library content change, which could be a sub-folder or related file activity
+      this.notifyAllWindowsAboutLibraryChange(libraryName, dirPath, eventType);
     }
   }
 
+  /**
+   * Lists all user libraries in the presentation library path
+   * @returns List of libraries with their metadata
+   */
+  public async listUserLibraries(): Promise<ListUserLibrariesResponse> {
+    console.log('[SS_DEBUG_MAIN] listUserLibraries: Delegating to action.');
+    // This will call the imported listUserLibrariesAction function
+    return listUserLibrariesAction(this.pathService);
+  }
+
+  /**
+   * Creates a new user library with the given name
+   * @param libraryName Name of the library to create
+   * @returns Success status and path to the created library
+   */
+  public async createUserLibrary(libraryName: string): Promise<{ success: boolean; path?: string; error?: string }> {
+    console.log('[SS_DEBUG_MAIN] createUserLibrary: Delegating to action.');
+    // This will call the imported createUserLibraryAction function
+    return createUserLibraryAction(this.pathService, libraryName);
+  }
+
+  /**
+   * Deletes a user library
+   * @param libraryName Name of the library to delete
+   * @returns Success status
+   */
   public async deleteUserLibrary(libraryName: string): Promise<{ success: boolean; error?: string }> {
-    console.log(`[SS_DEBUG_MAIN] deleteUserLibrary: Attempting to delete library '${libraryName}'`);
-
-    if (!libraryName || libraryName.trim() === '') {
-      console.warn('[SS_DEBUG_MAIN] deleteUserLibrary: Library name cannot be empty.');
-      return { success: false, error: 'Library name must be provided.' };
-    }
-
-    // Prevent deletion of protected libraries
-    if (libraryName === PATH_CONFIG.DEFAULT_LIBRARY_DIR_NAME || libraryName === PATH_CONFIG.MEDIA_LIBRARY_DIR_NAME) {
-      console.warn(`[SS_DEBUG_MAIN] deleteUserLibrary: Attempt to delete protected library '${libraryName}'.`);
-      return { success: false, error: `Cannot delete protected library '${libraryName}'.` };
-    }
-
-    const libraryPath = path.join(this.presentationLibraryPath, libraryName);
-    console.log(`[SS_DEBUG_MAIN] deleteUserLibrary: Library path to delete: ${libraryPath}`);
-
-    try {
-      const stats = await fs.promises.stat(libraryPath).catch(() => null);
-      if (!stats || !stats.isDirectory()) {
-        console.error(`[SS_DEBUG_MAIN] deleteUserLibrary: Library directory '${libraryName}' not found at ${libraryPath} or is not a directory.`);
-        return { success: false, error: `Library '${libraryName}' not found or is not a directory.` };
-      }
-
-      // Use fs.promises.rm for Node 14.14.0+ (recursive and force options)
-      // For older Node, fs.promises.rmdir(libraryPath, { recursive: true }) would be needed.
-      // Assuming Electron version uses a recent enough Node.js.
-      await fs.promises.rm(libraryPath, { recursive: true, force: true });
-      console.log(`[SS_DEBUG_MAIN] deleteUserLibrary: Successfully deleted library '${libraryName}' at ${libraryPath}.`);
-      return { success: true };
-    } catch (error: unknown) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      console.error(`[SS_DEBUG_MAIN] deleteUserLibrary: Error deleting library ${libraryPath}:`, errorMessage);
-      return { success: false, error: `Failed to delete library '${libraryName}': ${errorMessage}` };
-    }
+    console.log('[SS_DEBUG_MAIN] deleteUserLibrary: Delegating to action.');
+    // This will call the imported deleteUserLibraryAction function
+    return deleteUserLibraryAction(this.pathService, libraryName);
   }
 
-  public async createPresentationFile(
-    libraryPath: string,
-    baseName: string = 'New Presentation'
-  ): Promise<{ success: boolean; filePath?: string; error?: string }> {
-    console.log(`[SS_DEBUG_MAIN] createPresentationFile: Called for libraryPath: ${libraryPath}, baseName: ${baseName}`);
-    if (!libraryPath || !baseName) {
-      return { success: false, error: 'Library path and base name are required.' };
-    }
-
+  /**
+   * Renames a user library
+   * @param oldName Current name of the library
+   * @param newName New name for the library
+   * @returns Success status and path to the renamed library
+   */
+  public async renameUserLibrary(oldName: string, newName: string): Promise<{ success: boolean; path?: string; error?: string }> {
+    console.log('[SS_DEBUG_MAIN] renameUserLibrary: Delegating to action.');
+    // This will call the imported renameUserLibraryAction function
+    return renameUserLibraryAction(this.pathService, oldName, newName);
+  }
+  /**
+   * Creates a new presentation file with a unique name if a file with baseName already exists.
+   * Ensures the library directory exists before creating the file.
+   * @param libraryPath Path to the library
+   * @param baseName Base name for the file to create (e.g., "My Presentation")
+   * @returns Success status and path to the created file (filePath)
+   */
+  public async createPresentationFile(libraryPath: string, baseName: string): Promise<{ success: boolean; filePath?: string; error?: string }> {
     try {
-      // Ensure the library directory exists
-      await this.ensureDirectoryExists(libraryPath);
+      console.log(`[SS_DEBUG_MAIN] createPresentationFile: Creating file with baseName ${baseName} in ${libraryPath}`);
 
-      let presentationName = baseName;
-      let presentationFilePath = path.join(libraryPath, `${presentationName}.AIOPresentation`);
+      if (!this.pathService) {
+        console.error('[SS_DEBUG_MAIN] createPresentationFile: PathService is not initialized.');
+        return { success: false, error: 'Internal server error: PathService not available.' };
+      }
+      // Ensure the library directory exists
+      await this.pathService.ensureDirectoryExists(libraryPath);
+
+      const sanitizedBaseName = baseName.replace(/[^a-zA-Z0-9-_]/g, '_');
+      let presentationFileName = sanitizedBaseName; // This will be the part of the filename without extension, potentially with a counter
+      let filePath = path.join(libraryPath, `${presentationFileName}.AIOPresentation`);
       let counter = 1;
 
       // Ensure unique filename
-      while (fs.existsSync(presentationFilePath)) {
-        presentationName = `${baseName} (${counter})`;
-        presentationFilePath = path.join(libraryPath, `${presentationName}.AIOPresentation`);
+      while (fs.existsSync(filePath)) {
+        presentationFileName = `${sanitizedBaseName} (${counter})`;
+        filePath = path.join(libraryPath, `${presentationFileName}.AIOPresentation`);
         counter++;
       }
-
-      console.log(`[SS_DEBUG_MAIN] createPresentationFile: Determined unique file path: ${presentationFilePath}`);
+      console.log(`[SS_DEBUG_MAIN] createPresentationFile: Determined unique file path: ${filePath}`);
 
       const defaultSlide: Slide = {
         id: uuidv4(),
@@ -551,11 +447,14 @@ class StorageService {
       const presentationContent: AIOPresentationContent = {
         version: '1.0',
         slides: [defaultSlide],
+        // Consider adding a top-level 'name' property to AIOPresentationContent if your type defines it
+        // e.g., name: presentationFileName 
       };
 
-      await fs.promises.writeFile(presentationFilePath, JSON.stringify(presentationContent, null, 2));
-      console.log(`[SS_DEBUG_MAIN] createPresentationFile: Successfully created presentation file at ${presentationFilePath}`);
-      return { success: true, filePath: presentationFilePath };
+      await fs.promises.writeFile(filePath, JSON.stringify(presentationContent, null, 2));
+      console.log(`[SS_DEBUG_MAIN] createPresentationFile: Successfully created presentation file at ${filePath}`);
+      
+      return { success: true, filePath: filePath };
 
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : String(error);
@@ -563,6 +462,156 @@ class StorageService {
       return { success: false, error: `Failed to create presentation file: ${errorMessage}` };
     }
   }
+
+  /**
+   * Opens a presentation file and returns its content
+   * @param filePath Path to the presentation file
+   * @returns Success status and content of the file
+   */
+  private async openPresentationFile(filePath: string): Promise<{ success: boolean; content?: any; error?: string }> {
+    try {
+      console.log(`[SS_DEBUG_MAIN] openPresentationFile: Opening file ${filePath}`);
+      if (!fs.existsSync(filePath)) {
+        return {
+          success: false,
+          error: `File does not exist: ${filePath}`
+        };
+      }
+
+      const fileContent = fs.readFileSync(filePath, 'utf8');
+      let parsedContent;
+      try {
+        parsedContent = JSON.parse(fileContent);
+      } catch (parseError: unknown) {
+        const errMessage = parseError instanceof Error ? parseError.message : String(parseError);
+        console.error(`[SS_DEBUG_MAIN] openPresentationFile: Error parsing JSON content from ${filePath}:`, errMessage);
+        return {
+          success: false,
+          error: `Failed to parse presentation file: ${errMessage}`
+        };
+      }
+
+      console.log(`[SS_DEBUG_MAIN] openPresentationFile: Successfully opened and parsed file ${filePath}`);
+      return {
+        success: true,
+        content: parsedContent
+      };
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error(`[SS_DEBUG_MAIN] openPresentationFile: Error reading file ${filePath}:`, errorMessage);
+      return { success: false, error: `Failed to open presentation file: ${errorMessage}` };
+    }
+  }
+
+  /**
+   * Saves content to a presentation file.
+   * This method is public as it's called directly by an IPC handler.
+   * @param filePath Path to the presentation file
+   * @param content Content to save
+   * @returns Success status
+   */
+  public async savePresentationFile(filePath: string, content: any): Promise<{ success: boolean; error?: string }> {
+    try {
+      console.log(`[SS_DEBUG_MAIN] savePresentationFile: Saving file ${filePath}`);
+      
+      // Update the updatedAt timestamp if content is an object
+      if (typeof content === 'object' && content !== null) {
+        content.updatedAt = new Date().toISOString();
+      }
+
+      const fileContent = JSON.stringify(content, null, 2);
+      fs.writeFileSync(filePath, fileContent, 'utf8');
+      console.log(`[SS_DEBUG_MAIN] savePresentationFile: Successfully saved file ${filePath}`);
+      
+      // Notify windows about the change, similar to how create/delete might
+      const libraryPath = path.dirname(filePath);
+      this.notifyAllWindowsAboutPresentationFileChange(libraryPath);
+
+      return {
+        success: true
+      };
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error(`[SS_DEBUG_MAIN] savePresentationFile: Error saving file ${filePath}:`, errorMessage);
+      return {
+        success: false,
+        error: `Failed to save presentation file: ${errorMessage}`
+      };
+    }
+  }
+
+  /**
+   * Deletes a presentation file.
+   * This method is private and intended for internal use.
+   * @param filePath Path to the presentation file
+   * @returns Success status
+   */
+  private async deletePresentationFile(filePath: string): Promise<{ success: boolean; error?: string }> {
+    try {
+      console.log(`[SS_DEBUG_MAIN] deletePresentationFile: Deleting file ${filePath}`);
+      if (!fs.existsSync(filePath)) {
+        return {
+          success: false,
+          error: `File does not exist: ${filePath}`
+        };
+      }
+
+      fs.unlinkSync(filePath);
+      console.log(`[SS_DEBUG_MAIN] deletePresentationFile: Successfully deleted file ${filePath}`);
+      
+      return {
+        success: true
+      };
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error('[SS_DEBUG_MAIN] deletePresentationFile: Error deleting file:', errorMessage);
+      return {
+        success: false,
+        error: `Failed to delete presentation file: ${errorMessage}`
+      };
+    }
+  }
+
+  private async ensureDirectoryExists(dirPath: string): Promise<void> {
+    console.log(`[SS_DEBUG_MAIN] ensureDirectoryExists: Ensuring directory exists at path: ${dirPath}`);
+    try {
+      await fs.promises.mkdir(dirPath, { recursive: true });
+      console.log(`[SS_DEBUG_MAIN] ensureDirectoryExists: Directory ensured/created at: ${dirPath}`);
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error(`[SS_DEBUG_MAIN] ensureDirectoryExists: Failed to ensure directory ${dirPath}: ${errorMessage}`);
+      // Re-throw the error to allow the caller to handle it, as directory creation is often critical.
+      throw new Error(`Failed to ensure directory ${dirPath}: ${errorMessage}`);
+    }
+  }
+
+  public getDefaultUserLibraryPath(): string {
+    return this.pathService.getDefaultUserLibraryPath();
+  }
+
+
+  public getMediaLibraryPath(): string {
+    return this.pathService.getMediaLibraryPath();
+  }
+
+  public async setGlobalLibrariesRoot(newPath: string): Promise<void> {
+    console.log(`[SS_DEBUG_MAIN] setGlobalLibrariesRoot: Called with ${newPath}. Delegating to updateLibrariesPath.`);
+    await this.updateLibrariesPath(newPath);
+    console.log('[SS_DEBUG_MAIN] setGlobalLibrariesRoot: updateLibrariesPath call completed.');
+  }
+
+  public async setProjectsRoot(newPath: string): Promise<void> {
+    console.log(`[SS_DEBUG_MAIN] setProjectsRoot: Called with ${newPath}. Attempting to update via PathService.`);
+    try {
+      await this.pathService.updateUserProjectsRootPath(newPath); // PathService handles actual path update and dir creation
+      console.log('[SS_DEBUG_MAIN] setProjectsRoot: User projects root updated successfully via PathService.');
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error(`[SS_DEBUG_MAIN] setProjectsRoot: Error updating user projects root path: ${errorMessage}`);
+      throw new Error(`Failed to update user projects root path: ${errorMessage}`);
+    }
+  }
+
 
   /**
    * Lists all presentation files in a library directory.

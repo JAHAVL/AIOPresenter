@@ -77,6 +77,45 @@ export const useLibraryContentManager = (): UseLibraryContentManagerReturn => {
     }
   }, [currentLibraryPath, fetchLibraryContents]);
 
+  // Set up a listener for presentation file changes
+  useEffect(() => {
+    if (!window.electronAPI) {
+      console.error('[useLibraryContentManager] window.electronAPI is not available');
+      return;
+    }
+
+    if (!window.electronAPI.onPresentationFilesDidChange) {
+      console.error('[useLibraryContentManager] window.electronAPI.onPresentationFilesDidChange is not available');
+      return;
+    }
+
+    console.log('[useLibraryContentManager] Setting up listener for presentation file changes');
+    
+    // Set up the listener and get the cleanup function
+    const removeListener = window.electronAPI.onPresentationFilesDidChange((event, data) => {
+      console.log('[useLibraryContentManager] Received presentation files change event:', data);
+      console.log('[useLibraryContentManager] Current library path:', currentLibraryPath);
+      console.log('[useLibraryContentManager] Changed library path:', data.libraryPath);
+      
+      // Only refresh if the changed library is the currently selected one
+      if (data.libraryPath === currentLibraryPath) {
+        console.log('[useLibraryContentManager] Refreshing current library contents due to file changes');
+        fetchLibraryContents(currentLibraryPath);
+      } else {
+        console.log('[useLibraryContentManager] Ignoring file changes in non-selected library:', data.libraryPath);
+      }
+    });
+
+    // Debug: Check what IPC methods are available
+    console.log('[useLibraryContentManager] Available IPC methods:', Object.keys(window.electronAPI));
+
+    // Clean up the listeners when the component unmounts or when currentLibraryPath changes
+    return () => {
+      console.log('[useLibraryContentManager] Cleaning up presentation files change listeners');
+      removeListener();
+    };
+  }, [currentLibraryPath, fetchLibraryContents]);
+
   return { 
     libraryContents, 
     isLoading, 

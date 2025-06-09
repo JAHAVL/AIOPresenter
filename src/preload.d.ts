@@ -42,6 +42,9 @@ export interface IElectronAPI {
   // List Presentation Files in a Library
   listPresentationFiles: (libraryPath: string) => Promise<{ success: boolean; data?: PresentationFile[]; error?: string }>;
 
+  // onPresentationFilesDidChange
+  onPresentationFilesDidChange: (callback: (event: IpcRendererEvent, data: { libraryPath: string }) => void) => () => void;
+
   // General on listener
   on: (channel: string, listener: (event: IpcRendererEvent, ...args: any[]) => void) => () => void; // Returns cleanup fn
 

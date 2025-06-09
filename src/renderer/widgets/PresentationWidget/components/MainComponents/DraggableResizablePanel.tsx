@@ -30,22 +30,13 @@ const DraggableResizablePanel: React.FC<DraggableResizablePanelProps> = ({
   // Combined style for the Rnd component itself
   const rndCombinedStyle: React.CSSProperties = {
     // Original styles from rndWrapperStyle
-    // border: `1px solid ${themeColors.panelBorder || '#444'}`, // Overridden by test style
-    // backgroundColor: panel.componentKey === 'output' ? 'transparent' : (themeColors.panelBackground || '#2a2a2a'), // Overridden by test style
+    border: `1px solid ${themeColors.panelBorder || '#444'}`,
+    backgroundColor: panel.componentKey === 'output' ? 'transparent' : (themeColors.panelBackground || '#2a2a2a'),
     boxShadow: `0 2px 10px ${themeColors.shadowColor || 'rgba(0,0,0,0.5)'}`,
     borderRadius: '4px',
     display: 'flex',
     flexDirection: 'column',
     overflow: 'hidden', // Important for containing content
-
-    // Test styles merged in for visual confirmation
-    backgroundColor: 'fuchsia',
-    border: '3px solid limegreen',
-    color: 'white', // For test text visibility
-    alignItems: 'center', // For test text centering
-    justifyContent: 'center', // For test text centering
-    fontSize: '10px', // Smaller font for test text
-    padding: '5px',   // Padding for test text
     boxSizing: 'border-box',
 
     // Z-index for stacking
@@ -61,9 +52,6 @@ const DraggableResizablePanel: React.FC<DraggableResizablePanelProps> = ({
     height: '100%',
     display: 'flex',
     flexDirection: 'column',
-    alignItems: 'center', // Center test text
-    justifyContent: 'center', // Center test text
-    color: 'white', // Explicitly white for test text against fuchsia
     boxSizing: 'border-box',
   };
 

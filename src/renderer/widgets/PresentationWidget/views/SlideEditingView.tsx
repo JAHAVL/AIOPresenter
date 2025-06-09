@@ -6,8 +6,8 @@ import SlidePreview from '../components/SlideEditsView/SlidePreview/SlidePreview
 import PropertiesPanel from '../components/SlideEditsView/PropertiesPanel/PropertiesPanel';
 import LayersPanel from '../components/SlideEditsView/LayersPanel/LayersPanel';
 import type { ThemeColors } from '../theme.ts';
-import type { Slide, SlideElement, TextSlideElement, ImageSlideElement, VideoSlideElement, ShapeSlideElement } from '../types/presentationSharedTypes';
-import { ShapeType } from '../types/presentationSharedTypes';
+import type { Slide, SlideElement, TextSlideElement, ImageSlideElement, VideoSlideElement, ShapeSlideElement } from '@presentationSharedTypes';
+import type { ShapeType } from '@presentationSharedTypes'; // ShapeType is a type, not a value
 
 // Uncomment react-icons import after reinstallation
 // import { FaBold, FaItalic, FaUnderline, FaAlignLeft, FaAlignCenter, FaAlignRight, FaAlignJustify } from 'react-icons/fa';
@@ -115,16 +115,14 @@ const SlideEditingView: React.FC<SlideEditingViewProps> = ({
     const newTextElement: TextSlideElement = {
       id: uuidv4(),
       type: 'text',
-      name: 'Text Box',
-      content: 'New Text',
-      position: { x: 100, y: 100 },
-      size: { width: 200, height: 50 },
-      rotation: 0,
-      opacity: 1,
+      text: 'New Text',
       fontFamily: 'Arial',
       fontSize: 24,
-      color: '#ffffff',
-      textAlign: 'center',
+      color: themeColors.textColor || '#000000',
+      x: 100, y: 100,
+      width: 200, height: 50,
+      rotation: 0,
+      opacity: 1,
     };
 
     const updatedSlides = slides.map(slide => {
@@ -143,13 +141,12 @@ const SlideEditingView: React.FC<SlideEditingViewProps> = ({
     const newImageElement: ImageSlideElement = {
       id: uuidv4(),
       type: 'image',
-      name: 'Image',
-      src: dataUrl,
-      position: { x: 150, y: 150 },
-      size: { width: 300, height: 200 },
+      src: '', // Placeholder, user will need to set this
+      fit: 'contain',
+      x: 150, y: 150,
+      width: 300, height: 200,
       rotation: 0,
       opacity: 1,
-      objectFit: 'contain',
     };
 
     const updatedSlides = slides.map(slide => {
@@ -168,13 +165,12 @@ const SlideEditingView: React.FC<SlideEditingViewProps> = ({
     const newShapeElement: ShapeSlideElement = {
       id: uuidv4(),
       type: 'shape',
-      name: shapeType.charAt(0).toUpperCase() + shapeType.slice(1),
-      shapeType,
-      fillColor: '#3B82F6',
+      shapeType: shapeType,
+      fillColor: themeColors.accentColor || '#007bff',
       strokeColor: '#ffffff',
       strokeWidth: 2,
-      position: { x: 200, y: 200 },
-      size: { width: shapeType === ShapeType.LINE ? 200 : 100, height: shapeType === ShapeType.LINE ? 2 : 100 },
+      x: 200, y: 200,
+      width: 100, height: 100, // Generic default size
       rotation: 0,
       opacity: 1,
     };
@@ -198,7 +194,7 @@ const SlideEditingView: React.FC<SlideEditingViewProps> = ({
     // Placeholder for video element logic - similar to image/shape
     const newVideoElement: VideoSlideElement = {
       id: uuidv4(), type: 'video', name: 'Video Element',
-      position: { x: 10, y: 10 }, size: { width: 320, height: 180 },
+      x: 10, y: 10, width: 320, height: 180,
       rotation: 0, opacity: 1, zIndex: 1,
       src: 'public/videos/placeholder-video.mp4', // Placeholder
       autoplay: false, loop: false, controls: true,
@@ -393,7 +389,7 @@ const SlideEditingView: React.FC<SlideEditingViewProps> = ({
         <SlideEditorToolbar
           onAddTextElement={handleAddTextElement}
           onAddImageElement={handleAddImageElement}
-          onAddShapeElement={() => handleAddShapeElement(ShapeType.RECTANGLE)}
+          onAddShapeElement={() => handleAddShapeElement('rectangle')}
           onAddVideoElement={handleAddVideoElement}
           themeColors={themeColors}
         />

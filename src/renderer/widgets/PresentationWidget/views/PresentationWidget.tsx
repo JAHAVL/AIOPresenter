@@ -54,6 +54,12 @@ const PresentationWidget: React.FC<PresentationWidgetProps> = ({ themeColors }) 
   const { isModalOpen: isGenericModalOpen, modalProps: genericModalProps, openModal: openGenericModal, closeModal: closeGenericModal } = useInputModal();
   const [editingLibraryId, setEditingLibraryId] = useState<string | null>(null);
   const [currentEditName, setCurrentEditName] = useState<string>('');
+  
+  // State for presentation selection
+  const [selectedPresentationId, setSelectedPresentationId] = useState<string | null>(null);
+  
+  // State for layout templates
+  const [currentLayoutId, setCurrentLayoutId] = useState<string>('default');
 
   // Core Data States (excluding those dependent on seed data defined later)
   const { uniqueLibraries, isLoading: librariesLoading, error: librariesError, fetchUserLibraries } = useLibraryManager();
@@ -61,6 +67,12 @@ const PresentationWidget: React.FC<PresentationWidgetProps> = ({ themeColors }) 
   const { libraryContents, isLoading: isLoadingLibraryContents, fetchLibraryContents, createNewPresentation } = useLibraryContentManager();
   // Data Sync (storagePaths and IPC listeners for data changes)
   const { storagePaths, lastRefreshTimestamp, refreshLibraries } = useDataSync({ fetchUserLibraries });
+
+  const handleSelectPresentation = useCallback((presentationId: string | null) => {
+    console.log('[PresentationWidget] Presentation selected:', presentationId);
+    setSelectedPresentationId(presentationId);
+    // Additional logic for loading presentation content can be added here
+  }, []);
 
   const handleAddItemToLibrary = () => {
     console.log('[PresentationWidget] Adding item to library, refreshing libraries...');
@@ -366,6 +378,20 @@ const PresentationWidget: React.FC<PresentationWidgetProps> = ({ themeColors }) 
   const handleShowViewClick = useCallback(() => {
     console.log('Show view icon clicked - returning to main PresentationWidget view.');
     setCurrentViewMode('panels');
+  }, []);
+  
+  // Layout template handlers
+  const handleSelectLayoutTemplate = useCallback((templateId: string) => {
+    console.log(`Selected layout template: ${templateId}`);
+    setCurrentLayoutId(templateId);
+    // In a future implementation, this would load the actual layout configuration
+    // For now, we just update the state to track which template is selected
+  }, []);
+  
+  const handleSaveCurrentLayout = useCallback(() => {
+    console.log('Saving current layout as custom template');
+    // In a future implementation, this would save the current panel configuration
+    // For now, we just log the action
   }, []);
 
   // Handler for the 'Edit' (pencil) icon click
@@ -716,6 +742,8 @@ const PresentationWidget: React.FC<PresentationWidgetProps> = ({ themeColors }) 
             itemsForCueList={itemsForCueListDisplay} // Content for the right panel (SelectedItemContentView)
             cueListItemType={cueListItemTypeDisplay} // Type of items in the right panel
             onCreateNewLibrary={handleCreateNewLibrary} // This is handleAddNewUserLibrary from useLibraryManager
+            selectedPresentationId={selectedPresentationId}
+            onSelectPresentation={handleSelectPresentation}
             onRenameLibrarySubmit={async (libraryId: string, newName: string) => {
               console.log('[DEBUG] onRenameLibrarySubmit called with:', { libraryId, newName });
               const libraryToRename = uniqueLibraries.find(lib => lib.id === libraryId);
@@ -1020,7 +1048,9 @@ const PresentationWidget: React.FC<PresentationWidgetProps> = ({ themeColors }) 
       <PresentationControlsBar 
         themeColors={themeColors} 
         onShowClick={handleShowViewClick} 
-        onEditClick={handleEditViewClick} 
+        onEditClick={handleEditViewClick}
+        onSelectLayoutTemplate={handleSelectLayoutTemplate}
+        onSaveCurrentLayout={handleSaveCurrentLayout}
       />
 
       {currentViewMode === 'slideEditor' ? (

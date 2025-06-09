@@ -22,7 +22,8 @@
       "@utils/*": ["utils/*"],
       "@react-icons/*": ["node_modules/react-icons/*"],
       "@PresentationWidgetMocks": ["renderer/widgets/PresentationWidget/data/mockData"],
-      "@customTypes/*": ["renderer/types/*"],
+      "@customTypes/*": ["renderer/types/*"], // Kept for now, might be unused or for other types
+      "@presentationSharedTypes": ["renderer/widgets/PresentationWidget/types/presentationSharedTypes.ts"],
       "@shared/*": ["shared/*"]
     },
     "allowJs": true,

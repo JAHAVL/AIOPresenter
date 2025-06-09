@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import type { Library, Cuelist, Cue } from '@customTypes/presentationSharedTypes';
 import type { UserLibrary as ClientUserLibrary } from '../services/storageClient';
-import { initialLibraries as mockLibraries } from '@PresentationWidgetMocks';
+// import { initialLibraries as mockLibraries } from '@PresentationWidgetMocks'; // Removed as per no-mock-data rule and it's unused
 
 interface UseLibraryManagerReturn {
   uniqueLibraries: Library[];
@@ -50,14 +50,14 @@ export const useLibraryManager = (): UseLibraryManagerReturn => {
       id: ul.path, // Using path as ID, assuming it's unique for user libraries
       name: ul.name,
       path: ul.path,
-      cues: ul.cues || [], // Directly use cues from ClientUserLibrary
+      cuelists: ul.cuelists || [], // Changed from ul.cues to ul.cuelists
     }));
 
     const allLibraries = [...mappedUserLibraries]; // Removed mockLibraries to only show real data
     const unique = Array.from(new Map(allLibraries.map(lib => [lib.id, lib])).values());
     // Sort by name for consistent display
     return unique.sort((a, b) => a.name.localeCompare(b.name));
-  }, [mockLibraries, userLibraries]);
+  }, [userLibraries]);
 
   return { uniqueLibraries, isLoading, error, fetchUserLibraries };
 };

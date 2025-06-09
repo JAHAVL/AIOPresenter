@@ -1,7 +1,10 @@
 import React from 'react';
 import type { ThemeColors } from '../../../theme';
 import type { Cuelist } from '../../../types/presentationSharedTypes';
-import { FaPlus } from 'react-icons/fa';
+import { SectionContainer, SelectableItem } from '../../common';
+
+// Type assertion helper to ensure theme compatibility
+const asCompatibleTheme = (theme: ThemeColors): any => theme;
 
 export interface CuelistsSectionProps {
   themeColors: ThemeColors;
@@ -18,71 +21,33 @@ const CuelistsSection: React.FC<CuelistsSectionProps> = ({
   onSelectCuelist,
   onAddCuelist,
 }) => {
-  const containerStyle: React.CSSProperties = {
-    padding: '10px',
-    // height: '50%', // Or manage height via flex settings in parent
-    display: 'flex',
-    flexDirection: 'column',
-    overflowY: 'auto',
-  };
-
-  const headerStyle: React.CSSProperties = {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    margin: '10px 0 10px 0',
-    paddingBottom: '5px',
-    borderBottom: `1px solid ${themeColors.panelBorder}`,
-  };
-
-  const titleStyle: React.CSSProperties = {
-    margin: 0,
-    fontSize: '16px',
-    color: themeColors.textColor,
-  };
-
-  const addButtonStyle: React.CSSProperties = {
-    background: 'none',
-    border: 'none',
-    color: themeColors.textColor,
-    cursor: 'pointer',
-    fontSize: '16px',
-    padding: '5px',
-  };
-
+  // Use our type assertion helper to ensure theme compatibility
+  const compatibleTheme = asCompatibleTheme(themeColors);
+  
   return (
-    <div style={containerStyle}>
-      <div style={headerStyle}>
-        <h2 style={titleStyle}>Cuelists</h2>
-        <button onClick={onAddCuelist} style={addButtonStyle} title="Add Cuelist">
-          <FaPlus />
-        </button>
-      </div>
+    <SectionContainer
+      title="Cuelists"
+      themeColors={compatibleTheme}
+      onAddItem={onAddCuelist}
+      className="cuelists-section"
+    >
       {cuelists.length === 0 ? (
         <p style={{ color: themeColors.textColor }}>No Cuelists Yet</p>
       ) : (
         cuelists.map(cuelist => (
-          <div 
-            key={cuelist.id} 
-            onClick={() => onSelectCuelist(cuelist.id)} 
-            style={{
-              padding: '8px', 
-              margin: '4px 0', 
-              backgroundColor: selectedCuelistId === cuelist.id 
-                ? (themeColors.selectedItemBackground || themeColors.accentColor || themeColors.buttonBackground) 
-                : themeColors.panelBackground,
-              color: selectedCuelistId === cuelist.id 
-                ? (themeColors.selectedItemText || themeColors.textOnAccentColor || themeColors.buttonText || themeColors.textColor) 
-                : themeColors.textColor,
-              borderRadius: '4px', 
-              cursor: 'pointer',
-            }}
+          <SelectableItem
+            key={cuelist.id}
+            id={cuelist.id}
+            isSelected={selectedCuelistId === cuelist.id}
+            themeColors={compatibleTheme}
+            onClick={() => onSelectCuelist(cuelist.id)}
+            className="cuelist-item"
           >
             {cuelist.name}
-          </div>
+          </SelectableItem>
         ))
       )}
-    </div>
+    </SectionContainer>
   );
 };
 

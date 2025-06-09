@@ -1,15 +1,15 @@
 {
   "name": "aiopresenter",
-  "version": "0.2.5",
+  "version": "0.2.6",
   "description": "",
   "main": "dist/main/main.js",
   "scripts": {
-    "dev": "cross-env NODE_ENV=development webpack serve --config webpack.renderer.config.js --port 8080",
+    "dev": "cross-env NODE_ENV=development webpack serve --config webpack.renderer.config.js --port 9871",
     "build:main": "cross-env NODE_ENV=production webpack --config webpack.main.config.js",
     "build:preload": "cross-env NODE_ENV=production webpack --config webpack.preload.config.js",
     "build:renderer": "cross-env NODE_ENV=development webpack --config webpack.renderer.config.js",
     "build": "npm run build:main && npm run build:preload && npm run build:renderer",
-    "electron:dev": "concurrently -k \"npm run dev\" \"rimraf dist && wait-on tcp:8080 && cross-env NODE_ENV=development webpack --config webpack.main.config.js && cross-env NODE_ENV=development webpack --config webpack.preload.config.js && cross-env NODE_ENV=development WEBPACK_DEV_SERVER_URL=http://localhost:8080 electron ./dist/main/main.js\"",
+    "electron:dev": "concurrently -k \"npm run dev\" \"rimraf dist && wait-on tcp:9871 && cross-env NODE_ENV=development webpack --config webpack.main.config.js && cross-env NODE_ENV=development webpack --config webpack.preload.config.js && cross-env NODE_ENV=development WEBPACK_DEV_SERVER_URL=http://localhost:9871 electron ./dist/main/main.js\"",
     "start": "npm run build && electron ./dist/main/main.js",
     "package": "npm run build && electron-forge package",
     "test": "echo \"Error: no test specified\" && exit 1",

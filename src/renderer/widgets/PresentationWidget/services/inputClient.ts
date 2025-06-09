@@ -3,11 +3,7 @@
 // Local ElectronWindow interface and declaration removed.
 // Global type from preload.d.ts will be used for window.electronAPI.
 
-interface IpcResponse<T> {
-  success: boolean;
-  value?: T;
-  error?: string;
-}
+import type { IpcResponse } from '@shared/types';
 
 /**
  * Requests user input through the main process using IPC.
@@ -30,7 +26,7 @@ export async function requestUserInput(
       // Since Electron dialog doesn't support input and prompt() is not available in Electron renderer,
       // we can't use browser prompt as a fallback. For now, return the default value as a placeholder.
       console.log('[IPC CLIENT] Electron dialog input not supported and prompt() not available. Returning default value as placeholder.');
-      return { success: true, value: defaultValue };
+      return { success: true, data: defaultValue };
     }
     return response;
   } catch (error) {

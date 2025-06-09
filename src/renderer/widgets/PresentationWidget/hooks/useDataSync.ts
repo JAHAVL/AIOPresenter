@@ -22,9 +22,9 @@ export const useDataSync = ({ fetchUserLibraries }: UseDataSyncProps): UseDataSy
     console.log('[useDataSync] Performing data fetch and refresh...');
     try {
       const pathsResult = await getStoragePaths();
-      if (pathsResult.success && pathsResult.data) {
-        setStoragePaths(pathsResult.data);
-        console.log('[useDataSync] Storage paths loaded:', pathsResult.data);
+      if (pathsResult.success && pathsResult.paths) {
+        setStoragePaths(pathsResult.paths);
+        console.log('[useDataSync] Storage paths loaded:', pathsResult.paths);
       } else {
         setStoragePaths(null); // Reset on failure to avoid stale data
         console.error('[useDataSync] Failed to fetch storage paths:', pathsResult.error);

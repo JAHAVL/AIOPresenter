@@ -423,6 +423,13 @@ app.whenReady().then(() => {
   console.error('Error during app.whenReady:', error);
 });
 
+app.on('ready', () => {
+  createWindow();
+  
+  // Debug: Log all IPC channels that are registered
+  console.log('[MAIN] Registered IPC channels:', ipcMain.eventNames());
+});
+
 app.on('window-all-closed', () => {
   console.log('All windows closed.');
   if (!IS_MAC) {

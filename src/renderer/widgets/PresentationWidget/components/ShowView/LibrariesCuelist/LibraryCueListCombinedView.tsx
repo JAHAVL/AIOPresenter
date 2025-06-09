@@ -3,6 +3,7 @@ import type { ThemeColors } from '../../../theme';
 import type { Library, Cuelist, PresentationFile, Cue } from '../../../types/presentationSharedTypes';
 import LibrariesSection from './LibrariesSection';
 import CuelistsSection from './CuelistsSection';
+import PresentationsSection from './PresentationsSection';
 import SelectedItemContentView from './SelectedItemContentView';
 // import TestLibraryDisplay from './TestLibraryDisplay'; // Import the new test component
 
@@ -10,6 +11,8 @@ import SelectedItemContentView from './SelectedItemContentView';
 // (LibrariesSection, CuelistsSection) but are kept for structural consistency with the original component
 // and for potential future use if this component's responsibilities expand (e.g., showing cue details).
 export interface LibraryCueListCombinedViewProps {
+  // Core props
+
   themeColors: ThemeColors;
   libraries: Library[];
   cuelists: Cuelist[];
@@ -33,6 +36,10 @@ export interface LibraryCueListCombinedViewProps {
   selectedCueId: string | null;
   onAddItemToSelectedList?: () => void; // New prop for the add button in SelectedItemContentView, made optional
   onPresentationCreateAttempted?: (result: { success: boolean; filePath?: string; error?: string }) => void;
+  
+  // Presentation selection props
+  selectedPresentationId?: string | null;
+  onSelectPresentation?: (id: string | null) => void;
 }
 
 const LibraryCueListCombinedView: React.FC<LibraryCueListCombinedViewProps> = ({
@@ -59,6 +66,9 @@ const LibraryCueListCombinedView: React.FC<LibraryCueListCombinedViewProps> = ({
   allCues,
   onAddItemToSelectedList = () => { console.warn('onAddItemToSelectedList not implemented or passed'); },
   onPresentationCreateAttempted,
+  // Presentation selection props
+  selectedPresentationId = null,
+  onSelectPresentation = (id) => { console.warn('onSelectPresentation not implemented or passed', id); },
 }) => {
   const selectedLibrary = selectedItemType === 'library' && selectedItemId 
     ? libraries.find(lib => lib.id === selectedItemId)
@@ -118,16 +128,30 @@ const LibraryCueListCombinedView: React.FC<LibraryCueListCombinedViewProps> = ({
         />
       </div>
       <div style={rightPanelStyle}>
-        <SelectedItemContentView 
-          themeColors={themeColors}
-          items={itemsForCueList} // This will be the content of the selected library or cuelist
-          itemType={cueListItemType} // This indicates if items are 'presentation' files or 'cues'
-          selectedCueId={selectedCueId}
-          onSelectCue={onSelectCue}
-          onAddItem={onAddItemToSelectedList} // Pass down the new handler
-          selectedLibraryPath={selectedLibrary ? selectedLibrary.path : undefined}
-          onPresentationCreateAttempted={onPresentationCreateAttempted}
-        />
+        {cueListItemType === 'presentation' ? (
+          <PresentationsSection
+            themeColors={themeColors}
+            presentations={itemsForCueList as PresentationFile[]}
+            selectedPresentationId={selectedPresentationId}
+            onSelectPresentation={onSelectPresentation}
+            onAddPresentation={() => {
+              console.log('Add presentation clicked');
+              onAddItemToSelectedList();
+            }}
+            libraryPath={selectedLibrary ? selectedLibrary.path : undefined}
+          />
+        ) : (
+          <SelectedItemContentView 
+            themeColors={themeColors}
+            items={itemsForCueList} // This will be the content of the selected library or cuelist
+            itemType={cueListItemType} // This indicates if items are 'presentation' files or 'cues'
+            selectedCueId={selectedCueId}
+            onSelectCue={onSelectCue}
+            onAddItem={onAddItemToSelectedList} // Pass down the new handler
+            selectedLibraryPath={selectedLibrary ? selectedLibrary.path : undefined}
+            onPresentationCreateAttempted={onPresentationCreateAttempted}
+          />
+        )}
       </div>
     </div>
   );

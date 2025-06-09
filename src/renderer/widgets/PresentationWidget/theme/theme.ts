@@ -67,6 +67,7 @@ export interface ThemeColors {
   selectedItemAccentColor: string; // For the left accent bar on selected items
   selectedListItemText: string; // For text in selected list items
   selectedSlideBorderColor: string;
+  textSecondary: string; // For secondary or less important text
 }
 
 export const defaultDarkThemeColors: ThemeColors = {
@@ -122,7 +123,8 @@ export const defaultDarkThemeColors: ThemeColors = {
 
   // Added properties from new lint error
   listItemHoverBackground: '#2C2C2C', // Consistent hover
-  selectedSlideBorderColor: '#4CAF50', // Subtle accent for selected slide border
+  selectedSlideBorderColor: '#4CAF50', // Subtle accent for selected slide border,
+  textSecondary: '#9E9E9E', // Secondary text color for less important text
 };
 
 export const defaultLightThemeColors: ThemeColors = {
@@ -177,6 +179,7 @@ export const defaultLightThemeColors: ThemeColors = {
 
   listItemHoverBackground: '#E5E5EA',
   selectedSlideBorderColor: '#007AFF',
+  textSecondary: '#8E8E93', // Secondary text color for less important text
 };
 
 export const defaultTheme = {

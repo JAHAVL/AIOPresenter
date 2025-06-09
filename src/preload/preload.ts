@@ -1,7 +1,8 @@
 // src/preload/preload.ts
 console.log('<<<<< PRELOAD SCRIPT VERSION XXXXX - TOP OF FILE - JUNE 05 2025 12:08 PM >>>>>');
-import { contextBridge, ipcRenderer, IpcRendererEvent } from 'electron';
-import { StorageChannel, Library, PresentationFile } from '../shared/ipcChannels';
+import { ipcRenderer, contextBridge, OpenDialogReturnValue, IpcRendererEvent } from 'electron';
+import { IpcResponse, UserLibrary, PresentationFile } from '@shared/types'; // Ensure types are imported
+import { StorageChannel, type Library, type ListUserLibrariesResponse } from '../shared/ipcChannels';
 // import { MainProcessDebugPayload } from './types'; // Assuming types.ts or similar, commented out for now
 // import { MainChannel, FileChannel } from './constants'; // Assuming constants.ts or similar, commented out for now
 
@@ -65,96 +66,166 @@ const electronAPIExports = {
   loadImageAsDataURL: (filePath: string) => ipcRenderer.invoke('file:load-image-data-url' /* FileChannel.LOAD_IMAGE_AS_DATA_URL */, filePath),
 
   // List User Libraries (using invoke)
-  listUserLibraries: (): Promise<{ success: boolean; data?: Library[]; error?: string }> => {
+  listUserLibraries: async (): Promise<IpcResponse<UserLibrary[]>> => {
     const channel = StorageChannel.LIST_USER_LIBRARIES;
-    console.log(`[preload.ts] listUserLibraries (invoke version): Attempting to invoke on channel (from enum StorageChannel.LIST_USER_LIBRARIES): '${channel}'`);
-    console.log('<<<<< PRELOAD SCRIPT VERSION XXXXX - INSIDE listUserLibraries (invoke) - JUNE 06 2025 - ENUM ONLY >>>>>');
-    return ipcRenderer.invoke(channel)
-      .then((libraries: Library[]) => {
-        console.log('[preload.ts] listUserLibraries resolved successfully with data:', libraries);
-        return { success: true, data: libraries };
-      })
-      .catch((err: Error) => {
-        console.error('[preload.ts] listUserLibraries failed:', err);
-        return { success: false, error: err.message };
-      });
+    console.log(`[preload.ts] listUserLibraries (invoke) for channel: '${channel}'`);
+    try {
+      const responseFromMain = await ipcRenderer.invoke(channel) as ListUserLibrariesResponse;
+      console.log(`[preload.ts] listUserLibraries (invoke): Received from main:`, responseFromMain);
+
+      if (!responseFromMain || typeof responseFromMain.success !== 'boolean') {
+        console.error('[preload.ts] listUserLibraries: Invalid response structure from main:', responseFromMain);
+        return { success: false, error: 'Invalid response structure from main process for listUserLibraries.' };
+      }
+
+      if (responseFromMain.success && responseFromMain.libraries) {
+        const userLibraries: UserLibrary[] = responseFromMain.libraries.map((lib: Library) => ({
+          id: lib.id,
+          name: lib.name,
+          path: lib.path,
+          cuelists: lib.cuelists || [], // Assuming Cuelist type is compatible
+          // presentationFiles will be undefined as Library type doesn't have it
+        }));
+        return { success: true, data: userLibraries };
+      } else if (responseFromMain.success && !responseFromMain.libraries) {
+        // Success true but no libraries array (e.g., empty list of libraries)
+        return { success: true, data: [] };
+      } else {
+        // Not successful
+        return { success: false, error: responseFromMain.error || 'Failed to list user libraries in main process.' };
+      }
+    } catch (error: any) {
+      console.error(`[preload.ts] listUserLibraries (invoke): Error on channel '${channel}':`, error);
+      return { success: false, error: error?.message || 'Unknown IPC error in listUserLibraries' };
+    }
   },
 
   // Create User Library
-  createUserLibrary: (libraryName?: string): Promise<{ success: boolean; path?: string; error?: string }> => {
+  createUserLibrary: async (libraryName: string): Promise<IpcResponse<UserLibrary>> => {
     const channel = StorageChannel.CREATE_USER_LIBRARY;
-    console.log(`[preload.ts] createUserLibrary: Attempting to invoke on channel '${channel}' with name: ${libraryName}`);
-    return ipcRenderer.invoke(channel, libraryName)
-      .then(result => {
-        console.log(`[preload.ts] createUserLibrary resolved successfully for '${libraryName}':`, result);
-        return result; // Should be { success: boolean; path?: string; error?: string }
-      })
-      .catch(err => {
-        console.error(`[preload.ts] createUserLibrary failed for '${libraryName}':`, err);
-        return { success: false, error: err.message };
-      });
+    console.log(`[preload.ts] createUserLibrary (invoke): Received libraryName: '${libraryName}' for channel: '${channel}'`);
+    if (typeof libraryName !== 'string' || libraryName.trim() === '') {
+      console.error('[preload.ts] createUserLibrary: libraryName is invalid or empty:', libraryName);
+      return { success: false, error: 'Invalid library name provided to preload.' };
+    }
+    try {
+      const result = await ipcRenderer.invoke(channel, libraryName); // Ensure libraryName is passed
+      console.log(`[preload.ts] createUserLibrary (invoke): Received from main for '${libraryName}':`, result);
+      if (!result || typeof result.success !== 'boolean') {
+        console.error('[preload.ts] createUserLibrary: Invalid response structure from main:', result);
+        return { success: false, error: 'Invalid response structure from main process' };
+      }
+      return result as IpcResponse<UserLibrary>;
+    } catch (error: any) {
+      console.error(`[preload.ts] createUserLibrary (invoke): Error for '${libraryName}' on channel '${channel}':`, error);
+      return { success: false, error: error?.message || 'Unknown IPC error in createUserLibrary' };
+    }
   },
 
   // Rename User Library
-  renameUserLibrary: (oldName: string, newName: string): Promise<{ success: boolean; oldPath?: string; newPath?: string; error?: string }> => {
+  renameUserLibrary: async (oldName: string, newName: string): Promise<IpcResponse<UserLibrary>> => {
     const channel = StorageChannel.RENAME_USER_LIBRARY;
-    console.log(`[preload.ts] renameUserLibrary: Attempting to invoke on channel '${channel}' with oldName '${oldName}', newName '${newName}'`);
-    return ipcRenderer.invoke(channel, oldName, newName)
-      .then(result => {
-        console.log(`[preload.ts] renameUserLibrary resolved successfully for '${oldName}' -> '${newName}':`, result);
-        return result; // Should be { success: boolean; oldPath?: string; newPath?: string; error?: string }
-      })
-      .catch(err => {
-        console.error(`[preload.ts] renameUserLibrary failed for '${oldName}' -> '${newName}':`, err);
-        return { success: false, error: err.message };
-      });
+    console.log(`[preload.ts] renameUserLibrary (invoke): Received oldName: '${oldName}', newName: '${newName}' for channel: '${channel}'`);
+    if (typeof oldName !== 'string' || oldName.trim() === '' || typeof newName !== 'string' || newName.trim() === '') {
+      console.error('[preload.ts] renameUserLibrary: oldName or newName is invalid or empty:', oldName, newName);
+      return { success: false, error: 'Invalid library name provided to preload.' };
+    }
+    try {
+      const result = await ipcRenderer.invoke(channel, oldName, newName); // Ensure oldName and newName are passed
+      console.log(`[preload.ts] renameUserLibrary (invoke): Received from main for '${oldName}' -> '${newName}':`, result);
+      if (!result || typeof result.success !== 'boolean') {
+        console.error('[preload.ts] renameUserLibrary: Invalid response structure from main:', result);
+        return { success: false, error: 'Invalid response structure from main process' };
+      }
+      return result as IpcResponse<UserLibrary>;
+    } catch (error: any) {
+      console.error(`[preload.ts] renameUserLibrary (invoke): Error for '${oldName}' -> '${newName}' on channel '${channel}':`, error);
+      return { success: false, error: error?.message || 'Unknown IPC error in renameUserLibrary' };
+    }
   },
 
   // Delete User Library
-  deleteUserLibrary: (libraryName: string): Promise<{ success: boolean; error?: string }> => {
+  deleteUserLibrary: async (libraryName: string): Promise<IpcResponse<void>> => {
     const channel = StorageChannel.DELETE_USER_LIBRARY;
-    console.log(`[preload.ts] deleteUserLibrary: Attempting to invoke on channel '${channel}' with library name '${libraryName}'`);
-    return ipcRenderer.invoke(channel, libraryName)
-      .then(result => {
-        console.log(`[preload.ts] deleteUserLibrary resolved successfully for '${libraryName}':`, result);
-        return result; // Should be { success: boolean; error?: string }
-      })
-      .catch(err => {
-        console.error(`[preload.ts] deleteUserLibrary failed for '${libraryName}':`, err);
-        return { success: false, error: err.message };
-      });
+    console.log(`[preload.ts] deleteUserLibrary (invoke): Received libraryName: '${libraryName}' for channel: '${channel}'`);
+    if (typeof libraryName !== 'string' || libraryName.trim() === '') {
+      console.error('[preload.ts] deleteUserLibrary: libraryName is invalid or empty:', libraryName);
+      return { success: false, error: 'Invalid library name provided to preload.' };
+    }
+    try {
+      const result = await ipcRenderer.invoke(channel, libraryName); // Ensure libraryName is passed
+      console.log(`[preload.ts] deleteUserLibrary (invoke): Received from main for '${libraryName}':`, result);
+      if (!result || typeof result.success !== 'boolean') {
+        console.error('[preload.ts] deleteUserLibrary: Invalid response structure from main:', result);
+        return { success: false, error: 'Invalid response structure from main process' };
+      }
+      return result as IpcResponse<void>;
+    } catch (error: any) {
+      console.error(`[preload.ts] deleteUserLibrary (invoke): Error for '${libraryName}' on channel '${channel}':`, error);
+      return { success: false, error: error?.message || 'Unknown IPC error in deleteUserLibrary' };
+    }
   },
 
   // Create Presentation File
-  createPresentationFile: (libraryPath: string, baseName?: string): Promise<{ success: boolean; filePath?: string; error?: string }> => {
+  createPresentationFile: async (libraryPath: string, baseName?: string): Promise<IpcResponse<{ filePath: string }>> => {
     const channel = StorageChannel.CREATE_PRESENTATION_FILE;
-    const args = { libraryPath, baseName };
-    console.log(`[preload.ts] createPresentationFile: Attempting to invoke on channel '${channel}' with args:`, args);
-    return ipcRenderer.invoke(channel, args)
-      .then(result => {
-        console.log(`[preload.ts] createPresentationFile resolved successfully for libraryPath '${libraryPath}':`, result);
-        return result; // Should be { success: boolean; filePath?: string; error?: string }
-      })
-      .catch(err => {
-        console.error(`[preload.ts] createPresentationFile failed for libraryPath '${libraryPath}':`, err);
-        return { success: false, error: err.message };
-      });
+    console.log(`[preload.ts] createPresentationFile (invoke): Received libraryPath: '${libraryPath}', baseName: '${baseName}' for channel: '${channel}'`);
+    if (typeof libraryPath !== 'string' || libraryPath.trim() === '') {
+      console.error('[preload.ts] createPresentationFile: libraryPath is invalid or empty:', libraryPath);
+      return { success: false, error: 'Invalid library path provided to preload.' };
+    }
+    try {
+      const result = await ipcRenderer.invoke(channel, libraryPath, baseName);
+      console.log(`[preload.ts] createPresentationFile (invoke): Received from main for '${libraryPath}', baseName '${baseName}':`, result);
+      if (!result || typeof result.success !== 'boolean') {
+        console.error('[preload.ts] createPresentationFile: Invalid response structure from main:', result);
+        return { success: false, error: 'Invalid response structure from main process' };
+      }
+      return result as IpcResponse<{ filePath: string }>;
+    } catch (error: any) {
+      console.error(`[preload.ts] createPresentationFile (invoke): Error for '${libraryPath}', baseName '${baseName}' on channel '${channel}':`, error);
+      return { success: false, error: error?.message || 'Unknown IPC error in createPresentationFile' };
+    }
   },
 
   // List Presentation Files in a Library
-  listPresentationFiles: (libraryPath: string): Promise<{ success: boolean; data?: PresentationFile[]; error?: string }> => {
+  listPresentationFiles: async (libraryPath: string): Promise<IpcResponse<PresentationFile[]>> => {
     const channel = StorageChannel.LIST_PRESENTATION_FILES;
-    console.log(`[preload.ts] listPresentationFiles: Attempting to invoke on channel '${channel}' with libraryPath:`, libraryPath);
-    // Pass libraryPath directly as a string, not wrapped in an object
-    return ipcRenderer.invoke(channel, libraryPath)
-      .then(result => {
-        console.log(`[preload.ts] listPresentationFiles resolved successfully for libraryPath '${libraryPath}':`, result);
-        return result; // Should be { success: boolean; data?: PresentationFile[]; error?: string }
-      })
-      .catch(err => {
-        console.error(`[preload.ts] listPresentationFiles failed for libraryPath '${libraryPath}':`, err);
-        return { success: false, error: err.message };
-      });
+    console.log(`[preload.ts] listPresentationFiles (invoke): Attempting to invoke for libraryPath: '${libraryPath}' on channel: '${channel}'`);
+
+    if (typeof libraryPath !== 'string' || libraryPath.trim() === '') {
+      console.error('[preload.ts] listPresentationFiles: libraryPath is invalid or empty:', libraryPath);
+      return { success: false, error: 'Invalid library path provided to preload.', data: [] };
+    }
+
+    try {
+      // Pass libraryPath directly as a string
+      const result = await ipcRenderer.invoke(channel, libraryPath);
+      console.log(`[preload.ts] listPresentationFiles (invoke): Received from main for '${libraryPath}':`, result);
+
+      if (!result || typeof result.success !== 'boolean') {
+        console.error('[preload.ts] listPresentationFiles: Invalid response structure from main:', result);
+        return { success: false, error: 'Invalid response structure from main process', data: [] };
+      }
+      // Ensure data is an empty array if files are undefined but success is true. Main process should send 'files' not 'data'.
+      // The 'data' property is part of the IpcResponse structure, not the payload from main for this specific channel.
+      // We construct the IpcResponse here, using 'result.files' for the 'data' field.
+      return { success: result.success, data: result.files || [], error: result.error };
+    } catch (error: any) {
+      console.error(`[preload.ts] listPresentationFiles (invoke): Error for '${libraryPath}' on channel '${channel}':`, error);
+      return { success: false, error: error?.message || 'Unknown IPC error in listPresentationFiles', data: [] };
+    }
+  },
+
+  // Listen for presentation files changes
+  onPresentationFilesDidChange: (callback: (event: IpcRendererEvent, data: { libraryPath: string }) => void) => {
+    console.log('[preload.ts] Setting up listener for presentation files changes');
+    const channel = StorageChannel.PRESENTATION_FILES_DID_CHANGE;
+    ipcRenderer.on(channel, callback);
+    return () => {
+      console.log('[preload.ts] Removing listener for presentation files changes');
+      ipcRenderer.removeListener(channel, callback);
+    };
   },
 
   // General on listener (if needed for other dynamic channels, use with caution)

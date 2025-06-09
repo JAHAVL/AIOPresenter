@@ -70,7 +70,9 @@ export const PATH_CONFIG = {
   LIBRARIES_DIR_NAME: 'Libraries',
   DEFAULT_LIBRARY_DIR_NAME: 'Default',
   MEDIA_LIBRARY_DIR_NAME: 'Media',
-  PROJECTS_DIR_NAME: 'Projects'
+  PROJECTS_DIR_NAME: 'Projects',
+  LOGS_DIR_NAME: 'logs',
+  SETTINGS_FILE_NAME: 'app-settings.json'
 };
 
 console.log('[pathconfig.ts] Pathconfig loaded with runtime functions.');

@@ -1,7 +1,7 @@
 import React from 'react';
 import type { ThemeColors } from '../../../theme';
 import type { Library } from '../../../types/presentationSharedTypes';
-import { FaPlus } from 'react-icons/fa';
+import { SectionContainer, EditableSelectableItem } from '../../common';
 
 export interface LibrariesSectionProps {
   themeColors: ThemeColors;
@@ -23,120 +23,60 @@ const LibrariesSection: React.FC<LibrariesSectionProps> = ({
   libraries,
   selectedLibraryId,
   onSelectLibrary,
-  onCreateNewLibrary, // New prop
-  onRenameLibrarySubmit, // New prop
-  editingLibraryId, // New prop
-  currentEditName, // New prop
-  onLibraryDoubleClick, // New prop
-  onLibraryNameChange, // New prop
-  onLibraryNameKeyDown, // New prop
+  onCreateNewLibrary,
+  onRenameLibrarySubmit,
+  editingLibraryId,
+  currentEditName,
+  onLibraryDoubleClick,
+  onLibraryNameChange,
+  onLibraryNameKeyDown,
 }) => {
   console.log('[LibrariesSection] Received libraries prop:', JSON.stringify(libraries, null, 2));
   console.log('[LibrariesSection] Number of libraries to display:', libraries.length);
 
-  const containerStyle: React.CSSProperties = {
-    padding: '10px',
-    // height: '50%', // Or manage height via flex settings in parent
-    display: 'flex',
-    flexDirection: 'column',
-    overflowY: 'auto',
+  const handleEditSubmit = (libraryId: string, newName: string) => {
+    console.log(`[LibrariesSection] handleEditSubmit called for library ${libraryId} with new name: '${newName}'`);
+    onRenameLibrarySubmit(libraryId, newName);
   };
 
-  const headerStyle: React.CSSProperties = {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    margin: '0 0 10px 0',
-    paddingBottom: '5px',
-    borderBottom: `1px solid ${themeColors.panelBorder}`,
-  };
-
-  const titleStyle: React.CSSProperties = {
-    margin: 0,
-    fontSize: '16px',
-    color: themeColors.textColor,
-  };
-
-  const addButtonStyle: React.CSSProperties = {
-    background: 'none',
-    border: 'none',
-    color: themeColors.textColor,
-    cursor: 'pointer',
-    fontSize: '16px',
-    padding: '5px',
+  const handleStartEdit = (libraryId: string, currentName: string) => {
+    console.log(`[LibrariesSection] handleStartEdit called for library ${libraryId} with current name: '${currentName}'`);
+    onLibraryDoubleClick(libraryId, currentName);
   };
 
   return (
-    <div style={containerStyle}>
-      <div style={headerStyle}>
-        <h2 style={titleStyle}>Libraries</h2>
-        <button onClick={onCreateNewLibrary} style={addButtonStyle} title="Add Library">
-          <FaPlus />
-        </button>
-      </div>
+    <SectionContainer
+      title="Libraries"
+      themeColors={themeColors}
+      onAddItem={onCreateNewLibrary}
+      className="libraries-section"
+    >
       {libraries.length === 0 ? (
         <p style={{ color: themeColors.textColor }}>No Libraries Yet</p>
       ) : (
         libraries.map(library => {
           console.log(`[LibrariesSection] Rendering item. Library ID: ${library.id}, Name: ${library.name}, editingLibraryId: ${editingLibraryId}, IsEditingThis: ${editingLibraryId === library.id}`);
+          const isEditing = editingLibraryId === library.id;
+          
           return (
-            <div 
-              key={library.id} 
-            onClick={() => editingLibraryId !== library.id && onSelectLibrary(library.id)} // Prevent selection when editing
-            onDoubleClick={() => editingLibraryId !== library.id && onLibraryDoubleClick(library.id, library.name)} // Prevent double click when already editing
-            style={{
-              padding: '8px', 
-              margin: '4px 0', 
-              backgroundColor: selectedLibraryId === library.id 
-                ? (themeColors.selectedItemBackground || themeColors.accentColor || themeColors.buttonBackground) 
-                : themeColors.panelBackground,
-              color: selectedLibraryId === library.id 
-                ? (themeColors.selectedItemText || themeColors.textOnAccentColor || themeColors.buttonText || themeColors.textColor) 
-                : themeColors.textColor,
-              borderRadius: '4px', 
-              cursor: editingLibraryId === library.id ? 'default' : 'pointer',
-            }}
-          >
-            {editingLibraryId === library.id ? (
-              <input
-                type="text"
-                value={currentEditName}
-                onFocus={() => {
-                  console.log(`[LibrariesSection] INPUT FOCUSED for library ${library.name} (ID: ${library.id})`);
-                }}
-                onChange={(e) => {
-                  console.log("[LibrariesSection] RAW INPUT EVENT:", e); // Log the raw event object
-                  console.log(`[LibrariesSection] onChange triggered. New value: '${e.target.value}'`);
-                  onLibraryNameChange(e.target.value);
-                }}
-                onKeyDown={(e) => {
-                  console.log(`[LibrariesSection] onKeyDown triggered. Key: '${e.key}', Library ID: ${library.id}`);
-                  onLibraryNameKeyDown(e, library.id);
-                }}
-                onBlur={() => {
-                  console.log(`[LibrariesSection] onBlur triggered for library ${library.id}. Current edit name: '${currentEditName}'. Submitting...`);
-                  onRenameLibrarySubmit(library.id, currentEditName);
-                }}
-                autoFocus
-                style={{
-                  width: '100%',
-                  padding: '6px',
-                  margin: '-6px', // Offset padding of parent to fill space
-                  border: `1px solid ${themeColors.inputBorder || themeColors.accentColor}`,
-                  borderRadius: '3px',
-                  backgroundColor: themeColors.inputBackground || themeColors.panelBackground,
-                  color: themeColors.inputText || themeColors.textColor,
-                  boxSizing: 'border-box',
-                }}
-              />
-            ) : (
-              library.name
-            )}
-          </div>
+            <EditableSelectableItem
+              key={library.id}
+              id={library.id}
+              isSelected={selectedLibraryId === library.id}
+              isEditing={isEditing}
+              initialValue={library.name}
+              themeColors={themeColors}
+              onSelect={() => !isEditing && onSelectLibrary(library.id)}
+              onStartEdit={() => handleStartEdit(library.id, library.name)}
+              onEditSubmit={(value) => handleEditSubmit(library.id, value)}
+              onEditCancel={() => onRenameLibrarySubmit(library.id, library.name)}
+              onKeyDown={(e) => onLibraryNameKeyDown(e, library.id)}
+              className="library-item"
+            />
           );
         })
       )}
-    </div>
+    </SectionContainer>
   );
 };
 

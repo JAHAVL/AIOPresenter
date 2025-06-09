@@ -6,10 +6,8 @@ export interface PresentationFile {
   // Future properties: thumbnail, duration, slideCount, etc.
 }
 
-import type { Cue, Slide } from '../../../../shared/ipcChannels';
-
-export type {
-  Library,
+import type {
+  UserLibrary as Library,
   Cuelist,
   Cue,
   Slide,
@@ -19,8 +17,22 @@ export type {
   ImageSlideElement,
   VideoSlideElement,
   ShapeSlideElement
-} from '../../../../shared/ipcChannels';
-export { ShapeType } from '../../../../shared/ipcChannels';
+} from '@shared/types';
+
+export type {
+  Library, // Alias for UserLibrary
+  Cuelist,
+  Cue,
+  Slide,
+  SlideElement,
+  BaseSlideElement,
+  TextSlideElement,
+  ImageSlideElement,
+  VideoSlideElement,
+  ShapeSlideElement
+}; // No 'from' needed as they are imported above
+
+export type ShapeType = ShapeSlideElement['shapeType'];
 
 
 // Represents a Cue and its slides, primarily for use in SlidesView when displaying multiple cues
